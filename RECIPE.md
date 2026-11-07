@@ -64,7 +64,7 @@ Daemon faces (native `.frames`, motion with native `.loop`/`.transition`, no tim
      (1 s) and stops drifting while anyone talks; then the caller walks there (`transition left`, 2.8 s)
      on a lane 34 px up, over the others' heads, its name hidden, and lands; on the way it only wears a small `⇢ <partner>` tag, the question
      bubble appears once it has arrived (bubbles open inwards at the field's ends). A **gathered** caller stays in its group until the field
-     has settled, then rises out of the group and walks straight from there; a gathered one being asked
+     has settled, then rises out of the group in place (0.55 s) and walks straight from there; a gathered one being asked
      steps out in front of its group (they meet there; the meeting point stays put even if its status
      changes meanwhile);
   2. the answer floats above the answerer in a gold bubble for 6 s;
@@ -113,6 +113,10 @@ Daemon faces (native `.frames`, motion with native `.loop`/`.transition`, no tim
 - Positions come from the field width: `on_size_change` reports zoomed pixels, divide by
   `settings().zoom` before using them for `left`. `loop("left", …)` values are **not** zoomed (unlike
   `left()`), multiply them by the zoom or a drifting daemon jumps out of its slot.
+- All phases run by the clock (`start + SHIFT/RISE/WALK`), never by counting renders: renders come in
+  bursts and are not frames. GPUI animates only changes made *after* a transition is attached, so the
+  wrapper gets its transition from its second render on — also while holding still — or the first move
+  after a hold jumps instead of gliding.
 - Re-layout only between visits: both partners stay out of the idle group and the reserved slot stays
   until the caller has landed, otherwise the field reflows under a walking daemon.
 - Speech bubbles must float (`absolute`) above the daemon; a wider column would shift every slot.

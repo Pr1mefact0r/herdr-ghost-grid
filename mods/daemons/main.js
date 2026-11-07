@@ -53,6 +53,7 @@ const HOP_MS = 480;             // one hop of the thank-you
 const HOPS = 3;
 const WALK_MS = 2800;
 const SHIFT_MS = 1000;           // others sliding aside to make room
+const RISE_MS = 550;             // a gathered daemon first rises out of its group, in place
 const LANE_UP = 34;             // a walking caller goes over the others' heads, this high
 const ANSWER_MS = 6 * 1000;    // the answer stays readable this long, then both say thanks
 const AFTER_REPLY_MS = ANSWER_MS + HOP_MS * HOPS;   // three hops in step, retro-RPG style, then the caller walks home
@@ -118,7 +119,7 @@ export default class Daemons extends View {
     for (const m of all) {
       if (!m.at) continue;
       const s0 = start(m);
-      for (const at of [s0, s0 + SHIFT_MS + 20, s0 + SHIFT_MS + WALK_MS + 20, s0 + SHIFT_MS + WALK_MS + 320, s0 + SHIFT_MS + WALK_MS + 20, s0 + AFTER_REPLY_MS + WALK_MS + 40, s0 + ANSWER_MS, s0 + AFTER_REPLY_MS, s0 + AFTER_REPLY_MS + WALK_MS, s0 + VISIT_MS]) {
+      for (const at of [s0, s0 + SHIFT_MS + 20, s0 + SHIFT_MS + RISE_MS + 20, s0 + SHIFT_MS + WALK_MS + 20, s0 + SHIFT_MS + RISE_MS + WALK_MS + 20, s0 + SHIFT_MS + WALK_MS + 20, s0 + AFTER_REPLY_MS + WALK_MS + 40, s0 + ANSWER_MS, s0 + AFTER_REPLY_MS, s0 + AFTER_REPLY_MS + WALK_MS, s0 + VISIT_MS]) {
         const d = at - now;
         if (d <= 0 || d > REFRESH_MS * 3 || this.scheduled.has(at)) continue;
         this.scheduled.add(at);
@@ -421,7 +422,7 @@ export default class Daemons extends View {
     return body;
   }
 
-  daemon(t, a, now, i, list, xTo, lift = false) {
+  daemon(t, a, now, i, list, xTo, lift = false, hold = false) {
     const look = LOOK[a.status] ?? LOOK.idle;
     const c = this.color(t, a.status);
     const h = hash(a.address);
@@ -436,16 +437,21 @@ export default class Daemons extends View {
     const visit = this.visitOf(a.address, now);
     const spotP = visit ? L.spotOf(a.address) : -1;
     const target = visit?.active ? spotP : -1;
-    // walking (there or back): over the others' heads, name hidden, then landing
-    // (from a group: also while leaving it, so it rises out of the group instead of sliding through it)
+    // Phases by the clock (renders may come in bursts; frames can't be counted on):
+    //   own slot: [s0, s0+SHIFT) others make room · [s0+SHIFT, +WALK) walk over
+    //   from a group: [s0, s0+SHIFT) still in the group · [+SHIFT, +RISE) rise out in place · [+RISE, +WALK) walk over
+    //   back: [until, until+WALK) walk home (to its slot, or into its group of now)
     const fromGroup = L.grouped?.has(a.address);
-    const walking = lift || spotP >= 0 && ((visit.active && now - start(visit.m) >= (fromGroup ? 0 : SHIFT_MS) && now - start(visit.m) < SHIFT_MS + WALK_MS)
+    const s0 = visit ? start(visit.m) : 0;
+    const walkFrom = s0 + SHIFT_MS + (fromGroup ? RISE_MS : 0);
+    const rising = target >= 0 && fromGroup && now < walkFrom;
+    const walking = lift || spotP >= 0 && ((visit.active && now >= s0 + SHIFT_MS && now < walkFrom + WALK_MS)
       || (!visit.active && now < visit.until + WALK_MS));
-    // room first, then walk: for SHIFT_MS after the visit starts the caller stays home while the others slide aside
-    const leaving = target >= 0 && now - start(visit.m) < SHIFT_MS && !L.grouped?.has(a.address);
-    const x = xTo ?? L.xOf(target >= 0 && !leaving ? target : i);
+    const leaving = target >= 0 && now < walkFrom;                 // not on its way yet
+    const homeX = fromGroup ? this.groupX?.get(a.address) ?? L.xOf(i) : L.xOf(i);
+    const x = xTo ?? (target >= 0 && !leaving ? L.xOf(target) : leaving ? homeX : L.xOf(i));
     const home = visit && now - visit.until < WALK_MS + REFRESH_MS;
-    let pos = this.placed(`p-${a.address}`, x, (target >= 0 && !leaving) || home ? WALK_MS : SHIFT_MS, this.groupX?.get(a.address));
+    let pos = this.placed(`p-${a.address}`, x, (target >= 0 && !leaving) || home ? WALK_MS : SHIFT_MS, this.groupX?.get(a.address), rising || hold);
     // drifting only while nobody is talking (everyone watches a conversation) and never into a neighbour
     if (target < 0 && a.status === "working" && !home && !L.talking && roam >= 4)
       pos = pos.loop("left", { from: (x - roam) * L.zoom, to: (x + roam) * L.zoom, period: 5200 + (h % 2600), easing: "ease-in-out" });   // loop() values aren't zoomed, left() is
@@ -464,7 +470,7 @@ export default class Daemons extends View {
         .child(`! ${a.app ?? "agent"}`).loop("opacity", { from: 0.55, to: 1, period: 700 });
     } else if (target >= 0 && target !== i) {
       // the question only once it has arrived beside its partner; on the way just a small tag
-      const arrived = now >= start(visit.m) + SHIFT_MS + WALK_MS + (L.grouped?.has(a.address) ? 300 : 0);
+      const arrived = now >= start(visit.m) + SHIFT_MS + (L.grouped?.has(a.address) ? RISE_MS : 0) + WALK_MS;
       bubble = visit.reply ? div().h(16)
         : arrived ? this.bubbleSay(t, visit.m.text, t.accent, this.edgeOf(target))
         : div().px(6).rounded(4).border_1().border_color(t.accent).text_color(t.accent).text_size(11).font_family("Hack")
@@ -510,13 +516,15 @@ export default class Daemons extends View {
   // A positioned wrapper. A freshly mounted element would animate its `left` in from 0 (the field's left
   // edge), so the first frame of a new one stands still where it comes from — the group it just left, or
   // its own slot — and only the next frame moves it, with the transition.
-  placed(id, x, ms, from) {
+  placed(id, x, ms, from, hold = false) {
     const seen = this.seenX?.has(id);
-    const at = seen ? x : (from ?? x);
+    const at = hold || seen ? x : (from ?? x);
     this.nextSeenX.set(id, at);
     let el = div().id(id).absolute().bottom(8).left(at);
+    // GPUI animates only changes *after* a transition is attached, so it is attached from the second render
+    // on — also while holding still — and the first move after a hold glides instead of jumping
     if (seen) el = el.transition("left", { duration: ms, easing: "ease-in-out" });
-    else if (at !== x) this.kick = true;          // move on next frame
+    else this.kick = true;                         // a second render soon, to attach it
     return el;
   }
 
@@ -716,9 +724,11 @@ export default class Daemons extends View {
               const gx = this.lay.xOf(groupIdx(it.a.address));
               if (now >= it.v.until) this.kick = true;
               // the group it returns to is the one of its status now (it may have started working meanwhile)
-              const lift = now < start(it.v.m) + SHIFT_MS + 600 || now >= it.v.until;   // rising out of / back into the group
+              // by the clock: rise out of the group in place, step out in front of it, and back in at the end
+              const te = start(it.v.m) + SHIFT_MS, rise = now < te + RISE_MS;
+              const lift = now < te + RISE_MS + SHIFT_MS || now >= it.v.until;
               if (lift) this.kick = true;
-              return this.daemon(t, it.a, now, p, shown, now < it.v.until ? this.lay.xOf(p) : gx, lift);
+              return this.daemon(t, it.a, now, p, shown, rise ? gx : now < it.v.until ? this.lay.xOf(p) : gx, lift, rise);
             }
             return place(p, `p-ghost-${it.v.m.from}`, this.ghost(t, it.v, now, 0));
           }).filter(Boolean))
