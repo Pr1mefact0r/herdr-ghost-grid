@@ -26,7 +26,10 @@ Left to right, top to bottom (the `main` layout's structure, restyled):
     `▸ working  ! needs you  ✓ done  · idle` in the status colors;
   - ticker row (18 px): the last three `hc` messages of the last 30 min, `from ⇢ to HH:MM „text…“`,
     a live one (< 90 s) in accent with a moving packet `···⇢`;
-  - the field: one daemon per agent, evenly spread (`justify_around`), bottom-aligned. A daemon is a
+  - the field: one slot per daemon, each daemon absolutely placed (`left` = slot centre) so every change
+    of place animates. When slots get narrower than 130 px, all **idle** daemons (not those in a visit)
+    collapse into one group daemon `[·_·]×N` at the right end (`N idle`, names below, hover lists them,
+    click focuses the first); if it is still narrow, every daemon shrinks (face 18→11 px). A daemon is a
     120 px column: note line (16 px), face box (Hack Bold 18, 1 px border in the status color,
     rounded 6), a 64×2 px context meter, space name (11) and `tab · status` (10, dim).
 - **Terminals**: the active tab's panes as cards (radius 8, gap 8, border `#1d3a30`, focus 1 px accent),
@@ -53,14 +56,18 @@ Daemon faces (native `.frames`, motion with native `.loop`/`.transition`, no tim
   (accent, gold > 50 %, red > 80 %), output tokens, model, last answer, session name, hc sent/received
   and the last message.
 - **A visit** (an `hc send` from one agent to another):
-  1. the caller walks (`transition left`, 2.2 s, ease-in-out) to stand beside the one it asks; the one
-     asked stops drifting and waits at home; the question floats above the caller in a bubble;
+  1. a slot is reserved beside the one asked, on the side the caller comes from; everyone slides aside
+     (0.9 s) and stops drifting while anyone talks; then the caller walks there (`transition left`, 2.2 s)
+     on a lane 34 px up, over the others' heads, its name hidden, and lands; the question floats above it
+     (bubbles open inwards at the field's ends);
   2. the answer floats above the answerer in a gold bubble for 6 s;
   3. both switch to `[♥_♥]`/`[♥‿♥]` in pink `#ff7ab6` and hop 12 px three times in step (480 ms each);
-  4. the caller walks home. No answer: it walks home once the one asked is idle/done again (after 8 s), at the latest after 60 s.
+  4. the caller walks home the same way; the gap and both partners stay as they are until it has landed,
+     then the field tidies up in one animated step. No answer: it walks home once the one asked is
+     idle/done again (after 8 s), at the latest after 60 s.
   A message counts as an answer only if the other side has an open question (chronological pairing).
 - **Guests**: a sender with no daemon on this screen (an unconnected machine) appears as a translucent
-  ghost `[◇_◇]` beside the one it asks, labelled with its machine and `tN · guest`.
+  ghost `[◇_◇]` in its own reserved slot beside the one it asks, labelled with its machine and `tN · guest`.
 - `ctrl-shift-d` (layout `ghost-grid`) or `herdr-app do daemons.demo` plays a made-up visit between the
   first and last daemon; `daemons.demo-guest` one from a ghost. Nothing is sent to anyone.
 - Empty: `no daemons online — start an agent ▮`.
@@ -95,8 +102,11 @@ Daemon faces (native `.frames`, motion with native `.loop`/`.transition`, no tim
   long ones, never `tail -c`.
 - Log timestamps mark when the agent *started* writing; phases therefore run from when this screen
   first saw a message (`max(at, seen)`), so network delay never skips a phase.
-- A visitor's position comes from the field width: `on_size_change` reports zoomed pixels, divide by
-  `settings().zoom` before using it for `left`.
+- Positions come from the field width: `on_size_change` reports zoomed pixels, divide by
+  `settings().zoom` before using them for `left`. `loop("left", …)` values are **not** zoomed (unlike
+  `left()`), multiply them by the zoom or a drifting daemon jumps out of its slot.
+- Re-layout only between visits: both partners stay out of the idle group and the reserved slot stays
+  until the caller has landed, otherwise the field reflows under a walking daemon.
 - Speech bubbles must float (`absolute`) above the daemon; a wider column would shift every slot.
 - The context window is assumed 1M tokens (`CONTEXT_WINDOW`).
 - UI language: `LANG` at the top of `mods/daemons/main.js`, `"en"` (default) or `"de"`; all words live in `TEXT`.
