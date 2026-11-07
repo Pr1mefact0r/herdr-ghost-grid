@@ -26,7 +26,8 @@ const LOOK = {
   done:    { face: ["[-_-]"], ms: 1000, note: ["z", "zz", "zzz", " "], noteMs: 450, word: "fertig" },
   idle:    { face: ["[·_·]", "[·_·]", "[·_·]", "[-_-]"], ms: 900, note: ["▮", " "], noteMs: 530, word: "wartet" },
 };
-const VISIT_MS = 3 * 60 * 1000;   // a caller waits at most this long beside the one it asked
+const VISIT_MS = 60 * 1000;      // a caller waits at most this long beside the one it asked
+const GIVE_UP_MS = 8 * 1000;     // …or this long once the one asked is idle/done again without answering
 const HOP_MS = 480;             // one hop of the thank-you
 const HOPS = 3;
 const WALK_MS = 2200;
@@ -125,9 +126,11 @@ export default class Daemons extends View {
       const m = d.message;
       if (d.type === "assistant" && Array.isArray(m?.content)) {
         for (const c of m.content) {
-          const cmd = c?.type === "tool_use" && c.name === "Bash" ? String(c.input?.command || "") : "";
-          const sentHere = [];
-          for (const hit of cmd.matchAll(/\bhc\s+send\s+(?:--?\S+\s+)*([A-Za-z0-9._-]+(?:\/t\d+)?|t\d+)\s+(?:"([^"]{0,120})|'([^']{0,120})|(\S[^\n]{0,119}))/g))
+          // heredoc bodies (<<EOF … EOF) are file contents, not commands: drop them before looking for `hc send`
+          const cmd = (c?.type === "tool_use" && c.name === "Bash" ? String(c.input?.command || "") : "")
+            .replace(/<<-?\s*['"]?(\w+)['"]?[^\n]*\n[\s\S]*?\n\s*\1\s*(?=\n|$)/g, "\n");
+          const sentHere = [];   // only real commands: `hc send` at a line start or after ; & | ( then do — not inside text
+          for (const hit of cmd.matchAll(/(?:^|[;&|(]|\bthen\b|\bdo\b)[ \t]*hc\s+send\s+(?:--?\S+\s+)*([A-Za-z0-9._-]+(?:\/t\d+)?|t\d+)\s+(?:"([^"]{0,120})|'([^']{0,120})|(\S[^\n]{0,119}))/gm))
             sentHere.push({ from: a.address, to: this.addr(hit[1], machine), at: ts, text: (hit[2] ?? hit[3] ?? hit[4] ?? "").replace(/\$\([^)]*\)/g, "…").replace(/\s+/g, " ").trim() });   // $(…) is only known once delivered
           // counted from the moment it was sent (an answer may arrive before the command finishes);
           // dropped again only if its result reports an error
@@ -277,7 +280,11 @@ export default class Daemons extends View {
     const m = this.msgs.filter((x) => x.from === addr && x.at && !x.isReply).pop();
     if (!m) return null;
     const reply = m.reply;
-    const until = reply ? start(reply) + AFTER_REPLY_MS : start(m) + VISIT_MS;
+    let until = reply ? start(reply) + AFTER_REPLY_MS : start(m) + VISIT_MS;
+    if (!reply) {   // not every message is a question: once the one asked is idle/done again, walk home
+      const host = agents().find((a) => a.address === m.to);
+      if (host && (host.status === "idle" || host.status === "done")) until = Math.min(until, Math.max(start(m) + GIVE_UP_MS, now));
+    }
     return { m, reply, active: now < until, until };
   }
 

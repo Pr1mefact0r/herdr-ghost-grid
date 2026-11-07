@@ -68,7 +68,7 @@
       },
       "min": 44,
       "max": 480,
-      "background": "#00000000",
+      "background": "#05100cb0",
       "resizable": false
     },
     {
@@ -97,7 +97,8 @@
           "max": 400,
           "content": {
             "mod": "daemons"
-          }
+          },
+          "background": "#05100cb0"
         },
         {
           "id": "work-body",
@@ -117,7 +118,7 @@
                     "height": 30,
                     "position": "top"
                   },
-                  "background": "#040d0a40",
+                  "background": "#040d0aa6",
                   "border": {
                     "width": 1,
                     "color": "#1f3d38"
@@ -164,7 +165,7 @@
               "min": 280,
               "max": 900,
               "hidden": true,
-              "background": "#00000000"
+              "background": "#05100cb0"
             }
           ],
           "padding": 8,
@@ -204,10 +205,10 @@
   ],
   "theme": "ghost-grid",
   "font": "Hack",
-  "terminal_opacity": 0.55,
+  "terminal_opacity": 0.72,
   "preview": "layouts/ghost-grid.svg",
   "colors": {
-    "chrome": "#05100c80",
-    "background": "#07110e99"
+    "chrome": "#05100ce6",
+    "background": "#07110ed9"
   }
 }

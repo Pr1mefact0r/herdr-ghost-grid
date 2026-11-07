@@ -13,9 +13,9 @@ Left to right, top to bottom (the `main` layout's structure, restyled):
 
 - **Background**: `backgrounds/ghost-grid.jpg` (2560×1440), dark green-grey with a 48 px grid, falling
   hex glyph columns in jade and faint scanlines, `fit: cover`. It shows through everything.
-- **Sidebar** (268 px, spaces + agents + footer, shipped mods), **tab bar** (42 px) and **status bar**
-  (28 px) on `chrome` = `#05100c80`.
-- **THE GRID** (block `grid`, 200 px, min 120, max 400) above the terminals, mod `daemons`:
+- **Sidebar** (268 px, spaces + agents + footer, shipped mods) on `#05100cb0`, **tab bar** (42 px) and
+  **status bar** (28 px) transparent over `chrome` = `#05100ce6`.
+- **THE GRID** (block `grid`, 200 px, min 120, max 400, background `#05100cb0`) above the terminals, mod `daemons`:
   - header row (24 px, Hack 11): blinking `▌`, `THE GRID · N daemons`, right: counts
     `▸ läuft  ! braucht dich  ✓ fertig  · wartet` in the status colors;
   - ticker row (18 px): the last three `hc` messages of the last 30 min, `from ⇢ to HH:MM „text…“`,
@@ -24,12 +24,12 @@ Left to right, top to bottom (the `main` layout's structure, restyled):
     120 px column: note line (16 px), face box (Hack Bold 18, 1 px border in the status color,
     rounded 6), a 64×2 px context meter, space name (11) and `tab · status` (10, dim).
 - **Terminals**: the active tab's panes as cards (radius 8, gap 8, border `#1d3a30`, focus 1 px accent),
-  pane background `#040d0a40`, `terminal_opacity` 0.55, terminal font Hack.
-- **Files / Changes** panel on the right (shipped mods) on the translucent `background`.
+  pane background `#040d0aa6`, `terminal_opacity` 0.72, terminal font Hack.
+- **Files / Changes** panel on the right (shipped mods) on `#05100cb0`.
 
 Theme `themes/ghost-grid.json` (taken from glowing jade jewellery): accent `#7ddcb4`, glow/ring
 `#b0f2d7`, text `#d2efe3`, muted `#92b8a8`, dim `#5c7d70`, border `#1d3a30`, done `#d9cf8c`,
-blocked `#e07b86`; layout overrides `chrome #05100c80`, `background #07110e99`.
+blocked `#e07b86`; layout overrides `chrome #05100ce6`, `background #07110ed9`.
 
 ## How it behaves
 
@@ -51,7 +51,7 @@ Daemon faces (native `.frames`, motion with native `.loop`/`.transition`, no tim
      asked stops drifting and waits at home; the question floats above the caller in a bubble;
   2. the answer floats above the answerer in a gold bubble for 6 s;
   3. both switch to `[♥_♥]`/`[♥‿♥]` in pink `#ff7ab6` and hop 12 px three times in step (480 ms each);
-  4. the caller walks home. No answer within 3 min: it walks home anyway.
+  4. the caller walks home. No answer: it walks home once the one asked is idle/done again (after 8 s), at the latest after 60 s.
   A message counts as an answer only if the other side has an open question (chronological pairing).
 - **Guests**: a sender with no daemon on this screen (an unconnected machine) appears as a translucent
   ghost `[◇_◇]` beside the one it asks, labelled with its machine and `tN · gast`.
@@ -62,7 +62,7 @@ Daemon faces (native `.frames`, motion with native `.loop`/`.transition`, no tim
 ## Built from
 
 - `layouts/ghost-grid.json`: a clone of `main` (`cloned_from main 0.1.13`) with root look
-  (`theme ghost-grid`, `font Hack`, background image, `terminal_opacity 0.55`, `colors`), translucent
+  (`theme ghost-grid`, `font Hack`, background image, `terminal_opacity 0.72`, `colors`), translucent
   pane frame, and a block `{ id: "grid", content: { mod: "daemons" } }` inserted in `work` before
   `work-body`. `layouts/ghost-grid-plain.json` is the same without the grid. Preview SVGs alongside.
 - `mods/daemons/` (`main.js`, `mod.json` `place: none`): uses `agents`, `spaces`, `machines`, `run`,
