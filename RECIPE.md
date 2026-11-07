@@ -7,6 +7,10 @@ with heart eyes and three retro-RPG hops, and walks home.
 
 ![Ghost Grid](preview.png)
 
+![Ghost Grid: a visit – walk over, ask, answer, three hops, walk home](demo.webp)
+
+*The full visit as video: [`demo.mp4`](demo.mp4) (23 s, 3440×1440).*
+
 ![Ghost Grid: the thank-you after an answer](preview-thanks.png)
 
 ## What you see
