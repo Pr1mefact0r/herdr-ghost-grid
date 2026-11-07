@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 200">
+  <rect width="320" height="200" fill="#040a08"/>
+  <g stroke="#10302a" stroke-width="1"><path d="M0 40H320M0 80H320M0 120H320M0 160H320M80 0V200M160 0V200M240 0V200"/></g>
+  <g fill="#2f7d5e" font-family="monospace" font-size="9"><text x="100" y="60">0</text><text x="100" y="72">F</text><text x="100" y="84" fill="#7ddcb4">A</text><text x="270" y="110">1</text><text x="270" y="122" fill="#7ddcb4">#</text></g>
+  <rect width="64" height="200" fill="#060e0d" fill-opacity=".9"/>
+  <rect x="64" width="256" height="14" fill="#060e0d" fill-opacity=".85"/>
+  <rect x="72" y="22" width="118" height="164" rx="4" fill="#050d0c" fill-opacity=".75" stroke="#7ddcb4"/>
+  <rect x="196" y="22" width="116" height="164" rx="4" fill="#050d0c" fill-opacity=".75" stroke="#1d3a30"/>
+  <g fill="#7ddcb4"><rect x="8" y="12" width="40" height="4" rx="2"/></g>
+  <g fill="#5a7d76"><rect x="8" y="24" width="30" height="3" rx="1"/><rect x="8" y="32" width="34" height="3" rx="1"/></g>
+  <g fill="#7fd9a8"><rect x="80" y="32" width="60" height="3"/><rect x="80" y="40" width="80" height="3" fill="#c8e6df"/><rect x="80" y="48" width="44" height="3" fill="#7ddcb4"/></g>
+</svg>
