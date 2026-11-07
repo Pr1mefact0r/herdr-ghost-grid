@@ -449,7 +449,12 @@ export default class Daemons extends View {
       || (!visit.active && now < visit.until + WALK_MS));
     const leaving = target >= 0 && now < walkFrom;                 // not on its way yet
     const homeX = fromGroup ? this.groupX?.get(a.address) ?? L.xOf(i) : L.xOf(i);
-    const x = xTo ?? (target >= 0 && !leaving ? L.xOf(target) : leaving ? homeX : L.xOf(i));
+    // stand right beside the one asked (a sprite's width away), not in the middle of the reserved slot,
+    // which in a wide field can be far off; the reserved slot only guarantees room when it is narrow
+    const tp = visit ? L.slotOf(visit.m.to) : -1;
+    const meetX = target >= 0 && tp >= 0
+      ? L.xOf(tp) + Math.sign(target - tp) * Math.min(L.slot, L.spriteW + 12) : L.xOf(target);
+    const x = xTo ?? (target >= 0 && !leaving ? meetX : leaving ? homeX : L.xOf(i));
     const home = visit && now - visit.until < WALK_MS + REFRESH_MS;
     let pos = this.placed(`p-${a.address}`, x, (target >= 0 && !leaving) || home ? WALK_MS : SHIFT_MS, this.groupX?.get(a.address), rising || hold);
     // drifting only while nobody is talking (everyone watches a conversation) and never into a neighbour
