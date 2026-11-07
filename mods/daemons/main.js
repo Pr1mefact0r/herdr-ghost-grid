@@ -30,14 +30,14 @@ const TEXT = {
         unreadable: "can't read", reading: "reading session…", context: "context", usage: "usage",
         model: "model", lastAnswer: "last answer", sent: "hc sent", received: "hc received",
         quiet: "· no hc traffic in the last 30 min", empty: "no daemons online — start an agent", q: ["“", "”"],
-        needYou: "need you" },
+        needYou: "need you", thanks: "✓ thanks", aye: "aye aye, captain!", meeting: "meeting", tasks: (n) => `${n} tasks` },
   de: { working: "läuft", blocked: "braucht dich", done: "fertig", idle: "wartet", ago: (n, u) => `vor ${n}${u === "s" ? "s" : " " + u}`,
         demoQ: "Demo: kannst du kurz die Tests laufen lassen?", demoA: "Klar, alle 42 sind grün.",
         noProc: "kein laufender prozess", guest: "gast", noData: "keine Kontextdaten für dieses Programm",
         unreadable: "nicht lesbar", reading: "lese session…", context: "kontext", usage: "auslastung",
         model: "modell", lastAnswer: "letzte antwort", sent: "hc gesendet", received: "hc empfangen",
         quiet: "· kein hc-verkehr in den letzten 30 min", empty: "keine daemons online — starte einen agent", q: ["„", "“"],
-        needYou: "brauchen dich" },
+        needYou: "brauchen dich", thanks: "✓ danke", aye: "aye aye, Käpt'n!", meeting: "besprechung", tasks: (n) => `${n} Aufträge` },
 };
 const T = TEXT[LANG] || TEXT.en;
 
@@ -48,13 +48,18 @@ const LOOK = {
   idle:    { face: ["[·_·]", "[·_·]", "[·_·]", "[-_-]"], ms: 900, note: ["▮", " "], noteMs: 530, word: T.idle },
 };
 const VISIT_MS = 60 * 1000;      // a caller waits at most this long beside the one it asked
-const GIVE_UP_MS = 8 * 1000;     // …or this long once the one asked is idle/done again without answering
+const GIVE_UP_MS = 8 * 1000;
+const WORK_GIVE_UP_MS = 10 * 1000; // …or once it has arrived and the one asked is busy working on it
+const MEET_WINDOW_MS = 15 * 1000; // one sender to 2+ others within this window = a meeting
+const MEET_HOLD_MS = 6 * 1000;    // the meeting lasts this long after the last one arrived     // …or this long once the one asked is idle/done again without answering
 const HOP_MS = 480;             // one hop of the thank-you
 const HOPS = 3;
 const WALK_MS = 2800;
 const SHIFT_MS = 1000;           // others sliding aside to make room
+const DEPART_MS = SHIFT_MS + 1500; // a caller sets off this long after sending (a 2nd task meanwhile = meeting)
+const STACK_H = 24;              // height of one small daemon in a meeting stack
 const RISE_MS = 550;             // a gathered daemon first rises out of its group, in place
-const LANE_UP = 34;             // a walking caller goes over the others' heads, this high
+const LANE_UP = 62;             // above the others' faces, tags and pills             // a walking caller goes over the others' heads, this high
 const ANSWER_MS = 6 * 1000;    // the answer stays readable this long, then both say thanks
 const AFTER_REPLY_MS = ANSWER_MS + HOP_MS * HOPS;   // three hops in step, retro-RPG style, then the caller walks home
 const LOVE = { face: ["[♥_♥]", "[♥‿♥]"], ms: 500 };   // the thank-you: heart eyes and a little hop
@@ -108,6 +113,7 @@ export default class Daemons extends View {
         if (c === "demo" || c?.name === "demo") { this.startDemo(cx); cx.notify(); }
         if (c === "demo-guest" || c?.name === "demo-guest") { this.startDemo(cx, true); cx.notify(); }
         if (c === "demo-multi" || c?.name === "demo-multi") { this.startDemoMulti(cx); cx.notify(); }
+        if (c === "demo-meeting" || c?.name === "demo-meeting") { this.startDemoMeeting(cx); cx.notify(); }
       }
     });
   }
@@ -120,7 +126,7 @@ export default class Daemons extends View {
     for (const m of all) {
       if (!m.at) continue;
       const s0 = start(m);
-      for (const at of [s0, s0 + SHIFT_MS + 20, s0 + SHIFT_MS + RISE_MS + 20, s0 + SHIFT_MS + WALK_MS + 20, s0 + SHIFT_MS + RISE_MS + WALK_MS + 20, s0 + SHIFT_MS + WALK_MS + 20, s0 + AFTER_REPLY_MS + WALK_MS + 40, s0 + ANSWER_MS, s0 + AFTER_REPLY_MS, s0 + AFTER_REPLY_MS + WALK_MS, s0 + VISIT_MS]) {
+      for (const at of [s0, s0 + DEPART_MS + 20, s0 + DEPART_MS + RISE_MS + 20, s0 + DEPART_MS + WALK_MS + 20, s0 + DEPART_MS + RISE_MS + WALK_MS + 20, s0 + DEPART_MS + WALK_MS + 20, s0 + AFTER_REPLY_MS + WALK_MS + 40, s0 + ANSWER_MS, s0 + AFTER_REPLY_MS, s0 + AFTER_REPLY_MS + WALK_MS, s0 + VISIT_MS]) {
         const d = at - now;
         if (d <= 0 || d > REFRESH_MS * 3 || this.scheduled.has(at)) continue;
         this.scheduled.add(at);
@@ -157,8 +163,23 @@ export default class Daemons extends View {
       ...q(L[3], last, 3000, 13000, 3),
       ...q(L[4], L[5], 5000, 15000, 4),
     ];
-    for (const m of this.demo) for (const d of [0, SHIFT_MS + 20, SHIFT_MS + RISE_MS + 20, SHIFT_MS + RISE_MS + WALK_MS + 20, ANSWER_MS + 20, AFTER_REPLY_MS + 20, AFTER_REPLY_MS + WALK_MS + 40])
+    for (const m of this.demo) for (const d of [0, DEPART_MS + 20, DEPART_MS + RISE_MS + 20, DEPART_MS + RISE_MS + WALK_MS + 20, ANSWER_MS + 20, AFTER_REPLY_MS + 20, AFTER_REPLY_MS + WALK_MS + 40])
       cx.timer.after(m.at - now + d, (cx) => cx.notify());
+  }
+
+  // A meeting: the first daemon hands out tasks to three others; later two of them report back.
+  startDemoMeeting(cx) {
+    const L = agents().map((a) => a.address);
+    if (L.length < 4) return;
+    const h = L[0], now = Date.now(), task = T.demoQ;
+    this.demo = [
+      { from: h, to: L[L.length - 1], at: now, text: task },
+      { from: h, to: L[2], at: now + 1200, text: task },
+      { from: h, to: L[L.length - 2], at: now + 2400, text: task },
+      { from: L[2], to: h, at: now + 17000, text: T.demoA },
+      { from: L[L.length - 1], to: h, at: now + 21000, text: T.demoA },
+    ];
+    for (let d = 0; d < 46000; d += 500) cx.timer.after(d, (cx) => cx.notify());
   }
 
   // Reads one agent's transcript tail: usage, received <hc from> messages, and its own `hc send`s.
@@ -323,15 +344,66 @@ export default class Daemons extends View {
 
   // The caller's latest question, its answer if any, and whether it is still standing there.
   visitOf(addr, now) {
-    const m = this.msgs.filter((x) => x.from === addr && x.at && !x.isReply).pop();
+    if (this.meetVisits?.has(addr)) return this.meetVisits.get(addr);       // called to a meeting
+    const m = this.msgs.filter((x) => x.from === addr && x.at && !x.isReply && !x.meeting).pop();
     if (!m) return null;
-    const reply = m.reply;
+    const reply = m.reply && start(m.reply) <= now ? m.reply : null;       // a reply only counts once it is there
     let until = reply ? start(reply) + AFTER_REPLY_MS : start(m) + VISIT_MS;
-    if (!reply) {   // not every message is a question: once the one asked is idle/done again, walk home
+    if (!reply && !m.reply) {   // not every message is a question
       const host = agents().find((a) => a.address === m.to);
+      // idle/done again → walk home; busy working on it (took the job) → walk home a little after arriving
       if (host && (host.status === "idle" || host.status === "done")) until = Math.min(until, Math.max(start(m) + GIVE_UP_MS, now));
+      else if (host && host.status === "working") until = Math.min(until, Math.max(start(m) + DEPART_MS + RISE_MS + WALK_MS + WORK_GIVE_UP_MS, now));
     }
     return { m, reply, active: now < until, until };
+  }
+
+  // One sender to two or more others within MEET_WINDOW_MS: a meeting. The others come to the sender (it
+  // stays put), stand around it, and go back after MEET_HOLD_MS. No hearts: nothing is done yet — a later
+  // answer from one of them is a normal visit to the sender, thanked with an automatic "✓". In a crowded
+  // field the meeting collapses: nobody walks, the sender shows the meeting and the others a ⌂ tag.
+  buildMeetings(now, usable) {
+    this.meetings = []; this.meetVisits = new Map(); this.meetHost = new Map(); this.meetMember = new Map();
+    const qs = this.msgs.filter((m) => !m.isReply && m.at).sort((x, y) => start(x) - start(y));
+    const byFrom = new Map();
+    for (const m of qs) { if (!byFrom.has(m.from)) byFrom.set(m.from, []); byFrom.get(m.from).push(m); }
+    for (const [from, ms] of byFrom) {
+      let cl = [];
+      const flush = () => {
+        const to = [...new Set(cl.map((m) => m.to))].filter((x) => x !== from);
+        if (to.length >= 2) {
+          for (const m of cl) m.meeting = true;
+          const members = to.map((addr) => ({ addr, m: cl.find((m) => m.to === addr) }));
+          const end = Math.max(...members.map((x) => start(x.m) + DEPART_MS + RISE_MS + WALK_MS)) + MEET_HOLD_MS + 1500;
+          this.meetings.push({ host: from, members, s0: start(cl[0]), end, text: cl[0].text });
+        }
+        cl = [];
+      };
+      for (const m of ms) { if (cl.length && start(m) - start(cl[0]) > MEET_WINDOW_MS) flush(); cl.push(m); }
+      flush();
+    }
+    // answers to a meeting's tasks come later as normal visits to the sender, thanked automatically
+    for (const q of this.msgs) {
+      if (!q.meeting || !q.reply) continue;
+      const r = q.reply; q.reply = null; r.isReply = false; r.report = true;
+      r.reply = { from: q.from, to: r.from, at: start(r) + DEPART_MS + RISE_MS + WALK_MS + 3000, text: T.thanks, synthetic: true };
+    }
+    const live = this.meetings.filter((M) => now < M.end + WALK_MS);
+    const crowd = false;   // a meeting needs one slot only (members stack), so it never has to collapse
+    for (const M of live) {
+      M.collapsed = crowd;
+      if (now < M.end + (M.members.length - 1) * 600) this.meetHost.set(M.host, M);
+      M.members.sort((p, q) => start(p.m) - start(q.m));
+      M.arrive = M.members.map((x) => start(x.m) + DEPART_MS + RISE_MS + WALK_MS);
+      for (const [k, x] of M.members.entries()) {
+        if (crowd) { if (now < M.end) this.meetMember.set(x.addr, M); continue; }
+        // they leave one after another, top of the stack first, so they never start in a heap
+        const until = M.end + (M.members.length - 1 - k) * 600;
+        this.meetVisits.set(x.addr, { m: { from: x.addr, to: M.host, at: x.m.at, seen: x.m.seen, text: "" }, reply: null,
+          active: now < until, until, meeting: M, k });
+      }
+    }
+    if (live.length) this.kick = true;
   }
 
   // Someone is standing beside this agent right now: the visit, with its answer if given.
@@ -465,9 +537,9 @@ export default class Daemons extends View {
     //   back: [until, until+WALK) walk home (to its slot, or into its group of now)
     const fromGroup = L.grouped?.has(a.address);
     const s0 = visit ? start(visit.m) : 0;
-    const walkFrom = s0 + SHIFT_MS + (fromGroup ? RISE_MS : 0);
+    const walkFrom = s0 + DEPART_MS + (fromGroup ? RISE_MS : 0);
     const rising = target >= 0 && fromGroup && now < walkFrom;
-    const walking = lift || spotP >= 0 && ((visit.active && now >= s0 + SHIFT_MS && now < walkFrom + WALK_MS)
+    const walking = lift || spotP >= 0 && ((visit.active && now >= s0 + DEPART_MS && now < walkFrom + WALK_MS)
       || (!visit.active && now < visit.until + WALK_MS));
     const leaving = target >= 0 && now < walkFrom;                 // not on its way yet
     const homeX = fromGroup ? this.groupX?.get(a.address) ?? L.xOf(i) : L.xOf(i);
@@ -483,7 +555,11 @@ export default class Daemons extends View {
     // drifting only while nobody is talking (everyone watches a conversation) and never into a neighbour
     if (target < 0 && a.status === "working" && !home && !L.talking && roam >= 4)
       pos = pos.loop("left", { from: (x - roam) * L.zoom, to: (x + roam) * L.zoom, period: 5200 + (h % 2600), easing: "ease-in-out" });   // loop() values aren't zoomed, left() is
-    el = el.transition("top", { duration: 260, easing: "ease-out" }).top(walking ? -LANE_UP : 0);
+    // in a meeting stack: small, one above the other in front of the supervisor
+    const stacked = visit?.meeting && visit.active && !walking && now >= start(visit.m) + DEPART_MS;
+    // each member of a meeting walks on its own lane (higher per stack place), so they never cross
+    const lane = LANE_UP + (visit?.meeting ? (mt?.stack ?? visit.k ?? 0) * 16 : 0);
+    el = el.transition("top", { duration: 260, easing: "ease-out" }).top(walking ? -lane : stacked ? -(mt?.stack ?? 0) * STACK_H : 0);
     if (a.status === "blocked" && !walking)   // its bounce would override the lane: walking it stays up
       el = el.loop("top", { from: -12, to: 0, period: 520, easing: "ease-out" });
     if (a.status === "idle")
@@ -496,9 +572,28 @@ export default class Daemons extends View {
     if (a.status === "blocked") {
       bubble = div().px(6).rounded(4).bg(t.blocked).text_color(t.accent_foreground).text_size(11).font_weight(700)
         .whitespace_nowrap().truncate().max_w(L.spriteW).child(L.slot < 110 ? "!" : `! ${a.app ?? "agent"}`).loop("opacity", { from: 0.55, to: 1, period: 700 });
+    } else if (this.meetHost.get(a.address)) {
+      const M = this.meetHost.get(a.address), n = M.members.length;
+      const first = Math.max(...(M.arrive || [M.s0 + DEPART_MS]));   // once all are there
+      const anyArrived = now >= first && now < first + 3500;
+      bubble = now >= first + 3500 ? div().h(16) : anyArrived
+        ? this.bubbleSay(t, `⌂ ${T.tasks(n)} · ${M.text}`, t.accent, this.edgeOf(i), 0)
+        : div().px(6).rounded(4).border_1().border_color(t.accent).text_color(t.accent).text_size(11).font_family("Hack")
+            .whitespace_nowrap().truncate().max_w(L.spriteW).child(`⌂ ${n}`).loop("opacity", { from: 0.5, to: 1, period: 600 });
+    } else if (this.meetMember.get(a.address)) {
+      bubble = div().px(6).rounded(4).border_1().border_color(t.accent).text_color(t.accent).text_size(11).font_family("Hack")
+        .whitespace_nowrap().truncate().max_w(L.spriteW).child(`⌂ ${this.nameOf(this.meetMember.get(a.address).host)}`)
+        .loop("opacity", { from: 0.5, to: 1, period: 600 });
+    } else if (target >= 0 && target !== i && visit.meeting) {
+      const arrived = now >= start(visit.m) + DEPART_MS + (L.grouped?.has(a.address) ? RISE_MS : 0) + WALK_MS;
+      const M = visit.meeting, top = (mt?.stack ?? 0) === M.members.length - 1;
+      const ayeAt = Math.max(...M.arrive) + 3500;
+      bubble = arrived ? (top && now >= ayeAt && visit.active ? this.bubbleSay(t, `${T.aye}${M.members.length > 1 ? " ×" + M.members.length : ""}`, t.done, this.edgeOf(target), 0) : div().h(16))
+        : div().px(6).rounded(4).border_1().border_color(t.accent).text_color(t.accent).text_size(11).font_family("Hack")
+            .whitespace_nowrap().truncate().max_w(L.spriteW).child(`⌂ ${this.nameOf(visit.m.to)}`);
     } else if (target >= 0 && target !== i) {
       // the question only once it has arrived beside its partner; on the way just a small tag
-      const arrived = now >= start(visit.m) + SHIFT_MS + (L.grouped?.has(a.address) ? RISE_MS : 0) + WALK_MS;
+      const arrived = now >= start(visit.m) + DEPART_MS + (L.grouped?.has(a.address) ? RISE_MS : 0) + WALK_MS;
       bubble = visit.reply ? div().h(16)
         : arrived ? this.bubbleSay(t, visit.m.text, t.accent, this.edgeOf(target), L.levelOf(a.address, visit.m.to))
         : div().px(6).rounded(4).border_1().border_color(t.accent).text_color(t.accent).text_size(11).font_family("Hack")
@@ -526,13 +621,13 @@ export default class Daemons extends View {
     if (love) el = el.loop("top", { from: 0, to: -12, period: HOP_MS, easing: "ease-out" });
     const body = div().px(8).py(2).rounded(6).border_1().border_color(love ? "#ff7ab6" : c)
       .bg(a.focused ? t.selected : "#050d0ab0")
-      .text_size(L.face).font_family("Hack").font_weight(700).text_color(love ? "#ff7ab6" : c).whitespace_nowrap()
+      .text_size(stacked || walking ? Math.round(L.face * 0.6) : L.face).font_family("Hack").font_weight(700).text_color(love ? "#ff7ab6" : c).whitespace_nowrap()
       .frames(love ? LOVE.face : look.face, love ? LOVE.ms : look.ms);
     const meter = div().h(2).w(64).rounded(1).bg(t.raised)
       .child(div().h(2).rounded(1).bg(pct == null ? t.raised : pct > 0.8 ? t.blocked : pct > 0.5 ? t.done : t.accent)
         .w(pct == null ? 0 : Math.max(2, Math.round(64 * pct))));
 
-    const label = v_flex().items_center().opacity(walking ? 0 : 1)
+    const label = v_flex().items_center().opacity(walking || stacked ? 0 : 1)
       .child(div().text_size(11).text_color(t.foreground).truncate().max_w(L.spriteW).child(a.space_name))
       .child(div().text_size(10).text_color(t.dim).truncate().max_w(L.spriteW).child(`${a.tab_name} · ${look.word}`));
 
@@ -635,6 +730,7 @@ export default class Daemons extends View {
     const demo = this.demo.filter((m) => m.at <= now);
     this.msgs = [...(this.real || []), ...demo].map((m) => ({ ...m })).sort((x, y) => x.at - y.at);
     this.pairUp(this.msgs);
+    this.buildMeetings(now, Math.max(200, (this.width || 1200) / (Number(settings().zoom) || 1) - 40));
 
     setAgentOrder(list.map((a) => a.address));
     const count = (s) => list.filter((a) => a.status === s).length;
@@ -711,8 +807,20 @@ export default class Daemons extends View {
     // several callers to the same one: 1st on its own side, 2nd on the other side, 3rd on the 1st side one
     // step further out, … each gets a reserved slot on its side so nobody stands on anybody
     const spots = new Map(), meet = new Map(), level = new Map(), rank = new Map();
+    const meetSlot = new Map();   // supervisor -> its one stack slot
     for (const [n, v] of visitsNow.entries()) {
       const caller = v.m.from, tp = posOf(v.m.to), vp = posOf(caller);
+      if (v.meeting) {
+        if (tp < 0 || vp < 0) continue;
+        let ms = meetSlot.get(v.m.to);
+        if (!ms) {
+          const dir = tp >= items.length - 1 ? -1 : 1;    // in front of it: right, or left at the field's end
+          ms = { sp: { kind: "spot", visitor: `meet:${v.m.to}` }, dir };
+          items.splice(dir < 0 ? tp : tp + 1, 0, ms.sp); meetSlot.set(v.m.to, ms);
+        }
+        spots.set(caller, ms.sp); meet.set(caller, { to: v.m.to, dir: ms.dir, dist: 1, stack: v.k ?? 0 });
+        continue;
+      }
       if (tp < 0 || vp < 0 || tp === vp && !grouped.has(caller)) continue;
       // the side with fewer visitors already standing there (own side on a tie), one step further out
       const side = rank.get(v.m.to) ?? { "-1": 0, "1": 0 }; rank.set(v.m.to, side);
@@ -747,7 +855,7 @@ export default class Daemons extends View {
     for (const it of items) if (it.kind === "group") for (const m of it.g.members) nextGroupX.set(m.address, this.lay.xOf(items.indexOf(it)));
     const place = (p, id, child) => this.placed(id, this.lay.xOf(p), SHIFT_MS).child(child);
     // a gathered partner stays in its group while the field makes room, then steps out (and is "away")
-    const out = (v) => now >= start(v.m) + SHIFT_MS;
+    const out = (v) => now >= start(v.m) + DEPART_MS;
     const away = new Set(visitsNow.filter(out).flatMap((v) => [v.m.from, v.m.to]).filter((x) => grouped.has(x)));
 
     const field = list.length === 0
@@ -767,7 +875,7 @@ export default class Daemons extends View {
               if (now >= it.v.until) this.kick = true;
               // the group it returns to is the one of its status now (it may have started working meanwhile)
               // by the clock: rise out of the group in place, step out in front of it, and back in at the end
-              const te = start(it.v.m) + SHIFT_MS, rise = now < te + RISE_MS;
+              const te = start(it.v.m) + DEPART_MS, rise = now < te + RISE_MS;
               const lift = now < te + RISE_MS + SHIFT_MS || now >= it.v.until;
               if (lift) this.kick = true;
               return this.daemon(t, it.a, now, p, shown, rise ? gx : now < it.v.until ? this.lay.xOf(p) : gx, lift, rise);

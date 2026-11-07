@@ -12,6 +12,8 @@ on top where every coding agent is a little terminal daemon.
 - **Agents talking** – when one agent asks another via `hc send`, its daemon walks over, the question
   appears in a speech bubble, the answer above the other one, then both say thanks with heart eyes and
   three retro-RPG hops before the caller walks home. Works across connected machines too.
+- **Meetings** – when one agent hands out tasks to several others, they come to it, line up small in
+  front of their supervisor and answer *aye aye, captain!*
 - **Crowded? They gather.** When the field gets too narrow, daemons gather by status, one status at a
   time: idle ones camp at a **campfire**, working ones share a **LAN party**, done ones sleep in a **tent**,
   and last of all those that need you crowd together in **panic** (shaking, alarm light). A gathered daemon
