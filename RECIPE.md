@@ -76,7 +76,7 @@ Daemon faces (native `.frames`, motion with native `.loop`/`.transition`, no tim
   A message counts as an answer only if the other side has an open question (chronological pairing).
 - **Meetings** (one sender to 2+ others within 15 s): the others come to the sender (a "supervisor", it
   stays put), shrink to 60 % and stack vertically in one slot in front of it, each on its own walking lane
-  (higher per stack place) so they never cross. The nearest sets off first and takes the bottom; the
+  (higher per stack place) so they never cross. The nearest (by on-screen place — a gathered one counts from its group) sets off first and takes the bottom; the
   farthest comes last, sits on top and is the first to leave (0.7 s apart). Room is only made once it is
   clear where they meet (shortly before setting off), so the field shifts once, not twice. Once all are there the supervisor's bubble shows
   `⌂ N tasks · <first task>`, then the top of the stack answers `aye aye, captain! ×N`; after ~6 s they
@@ -89,8 +89,8 @@ Daemon faces (native `.frames`, motion with native `.loop`/`.transition`, no tim
 - `ctrl-shift-d` (layout `ghost-grid`) or `herdr-app do daemons.demo` plays a made-up visit between the
   first and last daemon; `daemons.demo-guest` one from a ghost. Nothing is sent to anyone.
   `daemons.demo-multi` plays four overlapping conversations (two callers to the same one) as a stress test.
-- Several callers to one: each takes the side with fewer visitors (its own side on a tie), one step further
-  out; one out-slot per gathered agent however many come; bubbles of neighbouring conversations alternate
+- Several callers to one: each stays on the side it comes from, one step further out per visitor already
+  there (never the far side: that would push the one asked aside and they would cross on the way back); one out-slot per gathered agent however many come; bubbles of neighbouring conversations alternate
   between two heights and narrow down in a crowded field; a walking daemon never bounces (it stays on the lane).
 - Empty: `no daemons online — start an agent ▮`.
 

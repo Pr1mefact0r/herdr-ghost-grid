@@ -395,8 +395,14 @@ export default class Daemons extends View {
       if (now < M.end + (M.members.length - 1) * 600) this.meetHost.set(M.host, M);
       // nearest first: it takes the bottom of the stack and arrives first; the farthest sets off last,
       // sits on top and is the first to leave — so nobody runs into anybody, coming or going
-      const idx = (addr) => agents().findIndex((a) => a.address === addr), hi = idx(M.host);
-      M.members.sort((p, q) => Math.abs(idx(p.addr) - hi) - Math.abs(idx(q.addr) - hi));
+      const idx = (addr) => { const p = this.lay?.slotOf?.(addr); return p != null && p >= 0 ? p : agents().findIndex((a) => a.address === addr); };
+      const hi = idx(M.host);
+      this.meetOrder = this.meetOrder || new Map();
+      const okey = `${M.host}@${M.s0}`;
+      if (!this.meetOrder.has(okey))
+        this.meetOrder.set(okey, [...M.members].sort((p, q) => Math.abs(idx(p.addr) - hi) - Math.abs(idx(q.addr) - hi)).map((x) => x.addr));
+      const order = this.meetOrder.get(okey);
+      M.members.sort((p, q) => order.indexOf(p.addr) - order.indexOf(q.addr));
       const base = Math.max(...M.members.map((x) => start(x.m)));
       M.members.forEach((x, k) => { x.go = base + k * 700; });   // walk start minus DEPART_MS
       M.arrive = M.members.map((x) => x.go + DEPART_MS + RISE_MS + WALK_MS);
@@ -563,7 +569,7 @@ export default class Daemons extends View {
     // in a meeting stack: small, one above the other in front of the supervisor
     const stacked = visit?.meeting && visit.active && !walking && now >= start(visit.m) + DEPART_MS;
     // each member of a meeting walks on its own lane (higher per stack place), so they never cross
-    const lane = LANE_UP + (visit?.meeting ? (mt?.stack ?? visit.k ?? 0) * 16 : 0);
+    const lane = LANE_UP + (visit?.meeting ? (mt?.stack ?? visit.k ?? 0) * 30 : 0);
     el = el.transition("top", { duration: 260, easing: "ease-out" }).top(walking ? -lane : stacked ? -(mt?.stack ?? 0) * STACK_H : 0);
     if (a.status === "blocked" && !walking)   // its bounce would override the lane: walking it stays up
       el = el.loop("top", { from: -12, to: 0, period: 520, easing: "ease-out" });
@@ -831,7 +837,7 @@ export default class Daemons extends View {
       if (tp < 0 || vp < 0 || tp === vp && !grouped.has(caller)) continue;
       // the side with fewer visitors already standing there (own side on a tie), one step further out
       const side = rank.get(v.m.to) ?? { "-1": 0, "1": 0 }; rank.set(v.m.to, side);
-      const nat = vp < tp ? -1 : 1, dir = side[-nat] < side[nat] ? -nat : nat;
+      const nat = vp < tp ? -1 : 1, dir = nat;   // own side only: the far side would push the one asked aside
       side[dir] += 1;
       const dist = side[dir], k = side[-1] + side[1] - 1;
       level.set(`${caller}>${v.m.to}`, (n + k) % 2);   // neighbouring bubbles on alternating heights
