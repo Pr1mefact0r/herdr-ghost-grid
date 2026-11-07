@@ -29,8 +29,8 @@ Left to right, top to bottom (the `main` layout's structure, restyled):
   - the field: one slot per daemon, each daemon absolutely placed (`left` = slot centre) so every change
     of place animates; a newly shown element starts where it comes from (its group), never from x = 0.
     When slots get narrower than 130 px, daemons **gather by status**, one status at a time until it fits:
-    idle → campfire `[·_·] ʌ [-_-] ×N`, working → LAN party `[>_ ⇄ _<] ×N`, done → tent `/\ zZ ×N`,
-    and last blocked → panic `◉ [°□°] !! ×N` (faces flipping, alarm light, shaking). Groups sit at the right
+    idle → campfire `[·_·] ʌ [-_-]`, working → LAN party `[>_ ⇄ _<]`, done → tent `/\ zZ`,
+    and last blocked → panic `◉ [°□°] !!` (faces flipping, alarm light, shaking). Groups sit at the right
     end (blocked, working, done, idle), show `N <status>` and names, hover lists them, click focuses the
     first. Visits never change which groups exist. Still too narrow → every daemon shrinks (face 18→11 px).
     A daemon is a
@@ -78,6 +78,10 @@ Daemon faces (native `.frames`, motion with native `.loop`/`.transition`, no tim
   ghost `[◇_◇]` in its own reserved slot beside the one it asks, labelled with its machine and `tN · guest`.
 - `ctrl-shift-d` (layout `ghost-grid`) or `herdr-app do daemons.demo` plays a made-up visit between the
   first and last daemon; `daemons.demo-guest` one from a ghost. Nothing is sent to anyone.
+  `daemons.demo-multi` plays four overlapping conversations (two callers to the same one) as a stress test.
+- Several callers to one: each takes the side with fewer visitors (its own side on a tie), one step further
+  out; one out-slot per gathered agent however many come; bubbles of neighbouring conversations alternate
+  between two heights and narrow down in a crowded field; a walking daemon never bounces (it stays on the lane).
 - Empty: `no daemons online — start an agent ▮`.
 
 ## Built from

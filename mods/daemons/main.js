@@ -107,6 +107,7 @@ export default class Daemons extends View {
         const c = await nextCommand();
         if (c === "demo" || c?.name === "demo") { this.startDemo(cx); cx.notify(); }
         if (c === "demo-guest" || c?.name === "demo-guest") { this.startDemo(cx, true); cx.notify(); }
+        if (c === "demo-multi" || c?.name === "demo-multi") { this.startDemoMulti(cx); cx.notify(); }
       }
     });
   }
@@ -138,6 +139,26 @@ export default class Daemons extends View {
       { from: b, to: a, at: now + 9000, text: T.demoA },
     ];
     this.scheduleBoundaries(cx);
+  }
+
+  // Several overlapping conversations (stress test), only on this screen: two callers to the same one,
+  // and pairs starting while others are still walking. Needs 6+ agents.
+  startDemoMulti(cx) {
+    const L = agents().map((a) => a.address);
+    if (L.length < 6) return;
+    const last = L[L.length - 1], now = Date.now();
+    const q = (from, to, dt, rt, n) => [
+      { from, to, at: now + dt, text: `${T.demoQ} (${n})` },
+      { from: to, to: from, at: now + rt, text: `${T.demoA} (${n})` },
+    ];
+    this.demo = [
+      ...q(L[0], last, 0, 9000, 1),
+      ...q(L[1], L[2], 1500, 11000, 2),
+      ...q(L[3], last, 3000, 13000, 3),
+      ...q(L[4], L[5], 5000, 15000, 4),
+    ];
+    for (const m of this.demo) for (const d of [0, SHIFT_MS + 20, SHIFT_MS + RISE_MS + 20, SHIFT_MS + RISE_MS + WALK_MS + 20, ANSWER_MS + 20, AFTER_REPLY_MS + 20, AFTER_REPLY_MS + WALK_MS + 40])
+      cx.timer.after(m.at - now + d, (cx) => cx.notify());
   }
 
   // Reads one agent's transcript tail: usage, received <hc from> messages, and its own `hc send`s.
@@ -351,10 +372,11 @@ export default class Daemons extends View {
 
   // Floats above the daemon without widening its column (a wider column would shift every slot).
   // edge: -1 at the field's left end (bubble opens rightwards), 1 at the right end (opens leftwards), 0 centred
-  bubbleSay(t, text, col, edge = 0) {
+  bubbleSay(t, text, col, edge = 0, lvl = 0) {
     const w = this.lay?.spriteW ?? SPRITE_W;
-    const left = edge < 0 ? 0 : edge > 0 ? w - 210 : (w - 210) / 2;
-    return div().relative().w(w).h(16).child(this.bubbleCard(t, text, col).absolute().bottom(0).left(left));
+    const bw = Math.round(Math.max(130, Math.min(210, (this.lay?.slot ?? 200) * 2 - 16)));
+    const left = edge < 0 ? 0 : edge > 0 ? w - bw : (w - bw) / 2;
+    return div().relative().w(w).h(16).child(this.bubbleCard(t, text, col, bw).absolute().bottom(lvl * 34).left(left));
   }
 
   // Is slot position p near an end of the field, where a centred 210 px bubble would be cut off?
@@ -364,9 +386,9 @@ export default class Daemons extends View {
     return centre < half ? -1 : centre > L.slots * L.slot - half ? 1 : 0;
   }
 
-  bubbleCard(t, text, col) {
-    return v_flex().w(210).items_center()
-      .child(div().max_w(210).px(8).py(4).rounded(8).border_1().border_color(col).bg(t.popover)
+  bubbleCard(t, text, col, bw = 210) {
+    return v_flex().w(bw).items_center()
+      .child(div().max_w(bw).px(8).py(4).rounded(8).border_1().border_color(col).bg(t.popover)
         .text_size(11).text_color(t.foreground).child(`${T.q[0]}${text.slice(0, 64)}${text.length > 64 ? "…" : ""}${T.q[1]}`))
       .child(div().text_size(10).text_color(col).child("▼"));
   }
@@ -452,8 +474,9 @@ export default class Daemons extends View {
     // stand right beside the one asked (a sprite's width away), not in the middle of the reserved slot,
     // which in a wide field can be far off; the reserved slot only guarantees room when it is narrow
     const tp = visit ? L.slotOf(visit.m.to) : -1;
+    const mt = L.meetOf?.(a.address);
     const meetX = target >= 0 && tp >= 0
-      ? L.xOf(tp) + Math.sign(target - tp) * Math.min(L.slot, L.spriteW + 12) : L.xOf(target);
+      ? L.xOf(tp) + (mt ? mt.dir * mt.dist : Math.sign(target - tp)) * Math.min(L.slot, L.spriteW + 12) : L.xOf(target);
     const x = xTo ?? (target >= 0 && !leaving ? meetX : leaving ? homeX : L.xOf(i));
     const home = visit && now - visit.until < WALK_MS + REFRESH_MS;
     let pos = this.placed(`p-${a.address}`, x, (target >= 0 && !leaving) || home ? WALK_MS : SHIFT_MS, this.groupX?.get(a.address), rising || hold);
@@ -461,7 +484,7 @@ export default class Daemons extends View {
     if (target < 0 && a.status === "working" && !home && !L.talking && roam >= 4)
       pos = pos.loop("left", { from: (x - roam) * L.zoom, to: (x + roam) * L.zoom, period: 5200 + (h % 2600), easing: "ease-in-out" });   // loop() values aren't zoomed, left() is
     el = el.transition("top", { duration: 260, easing: "ease-out" }).top(walking ? -LANE_UP : 0);
-    if (a.status === "blocked")
+    if (a.status === "blocked" && !walking)   // its bounce would override the lane: walking it stays up
       el = el.loop("top", { from: -12, to: 0, period: 520, easing: "ease-out" });
     if (a.status === "idle")
       el = el.loop("opacity", { from: 0.45, to: 0.85, period: 3200 + (h % 1200) });
@@ -472,19 +495,19 @@ export default class Daemons extends View {
     let bubble;
     if (a.status === "blocked") {
       bubble = div().px(6).rounded(4).bg(t.blocked).text_color(t.accent_foreground).text_size(11).font_weight(700)
-        .child(`! ${a.app ?? "agent"}`).loop("opacity", { from: 0.55, to: 1, period: 700 });
+        .whitespace_nowrap().truncate().max_w(L.spriteW).child(L.slot < 110 ? "!" : `! ${a.app ?? "agent"}`).loop("opacity", { from: 0.55, to: 1, period: 700 });
     } else if (target >= 0 && target !== i) {
       // the question only once it has arrived beside its partner; on the way just a small tag
       const arrived = now >= start(visit.m) + SHIFT_MS + (L.grouped?.has(a.address) ? RISE_MS : 0) + WALK_MS;
       bubble = visit.reply ? div().h(16)
-        : arrived ? this.bubbleSay(t, visit.m.text, t.accent, this.edgeOf(target))
+        : arrived ? this.bubbleSay(t, visit.m.text, t.accent, this.edgeOf(target), L.levelOf(a.address, visit.m.to))
         : div().px(6).rounded(4).border_1().border_color(t.accent).text_color(t.accent).text_size(11).font_family("Hack")
-            .child(`⇢ ${this.nameOf(visit.m.to)}`);
+            .whitespace_nowrap().truncate().max_w(L.spriteW).child(`⇢ ${this.nameOf(visit.m.to)}`);
     } else if (this.answering(a.address, now)) {
       const r = this.answering(a.address, now);
-      bubble = r.reply ? (now - start(r.reply) < ANSWER_MS ? this.bubbleSay(t, r.reply.text, t.done, this.edgeOf(i)) : div().h(16))
+      bubble = r.reply ? (now - start(r.reply) < ANSWER_MS ? this.bubbleSay(t, r.reply.text, t.done, this.edgeOf(i), L.levelOf(r.m.from, a.address)) : div().h(16))
         : div().px(6).rounded(4).border_1().border_color(t.accent).text_color(t.accent).text_size(11).font_family("Hack")
-            .child(`⇠ ${this.nameOf(r.m.from)}`).loop("opacity", { from: 0.5, to: 1, period: 600 });
+            .whitespace_nowrap().truncate().max_w(L.spriteW).child(`⇠ ${this.nameOf(r.m.from)}`).loop("opacity", { from: 0.5, to: 1, period: 600 });
     } else if (out || inn) {
       const m = out || inn;
       const label = out ? `⇢ ${this.nameOf(m.to)}` : `⇠ ${this.nameOf(m.from)}`;
@@ -538,7 +561,7 @@ export default class Daemons extends View {
   // need you crowd together waving (grouped last, so they stay visible on their own the longest).
   statusGroup(t, st, group) {
     const L = this.lay, n = group.length;
-    const chars = { idle: 15, working: 13, done: 7, blocked: 12 }[st];
+    const chars = { idle: 13, working: 11, done: 5, blocked: 10 }[st];
     const f = Math.max(9, Math.min(L.face, Math.floor((L.slot - 26) / (chars * 0.62))));   // the scene fits its slot
     const col = this.color(t, st);
     const fire = "#ffb36b", ember = "#ff7a45";
@@ -569,12 +592,11 @@ export default class Daemons extends View {
     el = el
       .child(st === "blocked"
         ? div().px(6).rounded(4).bg(t.blocked).text_color(t.accent_foreground).text_size(11).font_weight(700)
-            .child(`! ×${n}`).loop("opacity", { from: 0.55, to: 1, period: 700 })
+            .child("!").loop("opacity", { from: 0.55, to: 1, period: 700 })
         : div().h(16))
       .child(h_flex().px(8).py(2).gap(4).items_center().rounded(6).border_1().border_color(col).bg("#050d0ab0")
         .text_size(f).font_family("Hack").font_weight(700).whitespace_nowrap()
-        .child(scene)
-        .child(div().text_size(Math.round(f * 0.6)).text_color(col).child(`×${n}`)))
+        .child(scene))
       .child(div().h(2).w(64))
       .child(v_flex().items_center()
         .child(div().text_size(11).text_color(t.foreground).child(`${n} ${st === "blocked" ? T.needYou : T[st]}`))
@@ -673,21 +695,34 @@ export default class Daemons extends View {
     // the meeting point stays in front of the group the asked one was in when the visit began, even if
     // its status (and so its group) changes meanwhile; only the way back goes to its group of now
     this.outOrigin = this.outOrigin || new Map();
-    for (const v of visitsNow) {
-      if (!grouped.has(v.m.to)) continue;
-      const a = list.find((x) => x.address === v.m.to); if (!a) continue;
-      const key = `${v.m.from}>${v.m.to}@${v.m.at}`;
+    // one out-slot per asked agent, however many come to it (timing spans all of its visitors)
+    visitsNow.sort((x, y) => start(x.m) - start(y.m));
+    const byTarget = new Map();
+    for (const v of visitsNow) { if (!byTarget.has(v.m.to)) byTarget.set(v.m.to, []); byTarget.get(v.m.to).push(v); }
+    for (const [to, vs] of byTarget) {
+      if (!grouped.has(to)) continue;
+      const a = list.find((x) => x.address === to); if (!a) continue;
+      const key = `${to}@${vs[0].m.at}`;
       if (!this.outOrigin.has(key)) this.outOrigin.set(key, a.status);
       const og = items.findIndex((x) => x.kind === "group" && x.g.st === this.outOrigin.get(key));
-      items.splice(og >= 0 ? og : groupIdx(v.m.to), 0, { kind: "out", a, v });   // steps out, left of that group
+      const v = { m: vs[0].m, until: Math.max(...vs.map((x) => x.until)) };
+      items.splice(og >= 0 ? og : groupIdx(to), 0, { kind: "out", a, v });   // steps out, left of that group
     }
-    const spots = new Map();
-    for (const v of visitsNow) {
+    // several callers to the same one: 1st on its own side, 2nd on the other side, 3rd on the 1st side one
+    // step further out, … each gets a reserved slot on its side so nobody stands on anybody
+    const spots = new Map(), meet = new Map(), level = new Map(), rank = new Map();
+    for (const [n, v] of visitsNow.entries()) {
       const caller = v.m.from, tp = posOf(v.m.to), vp = posOf(caller);
       if (tp < 0 || vp < 0 || tp === vp && !grouped.has(caller)) continue;
+      // the side with fewer visitors already standing there (own side on a tie), one step further out
+      const side = rank.get(v.m.to) ?? { "-1": 0, "1": 0 }; rank.set(v.m.to, side);
+      const nat = vp < tp ? -1 : 1, dir = side[-nat] < side[nat] ? -nat : nat;
+      side[dir] += 1;
+      const dist = side[dir], k = side[-1] + side[1] - 1;
+      level.set(`${caller}>${v.m.to}`, (n + k) % 2);   // neighbouring bubbles on alternating heights
       const sp = { kind: "spot", visitor: caller };
-      items.splice(vp < tp ? tp : tp + 1, 0, sp);
-      spots.set(caller, sp);
+      items.splice(dir < 0 ? tp : tp + 1, 0, sp);
+      spots.set(caller, sp); meet.set(caller, { to: v.m.to, dir, dist });
     }
     for (const a of shown) {
       const g = this.guestFor(a.address, now);
@@ -702,6 +737,8 @@ export default class Daemons extends View {
       slot, slots, spriteW, face, boxW: face * 0.62 * 5 + 18,
       slotOf: posOf,
       spotOf: (addr) => (spots.has(addr) ? items.indexOf(spots.get(addr)) : -1),
+      meetOf: (addr) => meet.get(addr),
+      levelOf: (from, to) => level.get(`${from}>${to}`) ?? 0,
       xOf: (p) => 20 + p * slot + (slot - spriteW) / 2, zoom,
       talking: items.some((x) => x.kind === "spot" || x.kind === "ghost"),
       grouped,
