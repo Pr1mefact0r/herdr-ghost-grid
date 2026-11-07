@@ -20,11 +20,29 @@ const CONTEXT_WINDOW = 1000000;   // assumed context window of the current Claud
 const LIVE_MS = 90 * 1000;        // a message counts as "in flight" this long
 const RECENT_MS = 30 * 60 * 1000; // ticker shows messages this recent
 
+// UI language: "en" or "de"
+const LANG = "en";
+const TEXT = {
+  en: { working: "working", blocked: "needs you", done: "done", idle: "idle", ago: (n, u) => `${n}${u} ago`,
+        demoQ: "Demo: could you run the tests real quick?", demoA: "Sure, all 42 are green.",
+        noProc: "no running process", guest: "guest", noData: "no context data for this program",
+        unreadable: "can't read", reading: "reading session…", context: "context", usage: "usage",
+        model: "model", lastAnswer: "last answer", sent: "hc sent", received: "hc received",
+        quiet: "· no hc traffic in the last 30 min", empty: "no daemons online — start an agent", q: ["“", "”"] },
+  de: { working: "läuft", blocked: "braucht dich", done: "fertig", idle: "wartet", ago: (n, u) => `vor ${n}${u === "s" ? "s" : " " + u}`,
+        demoQ: "Demo: kannst du kurz die Tests laufen lassen?", demoA: "Klar, alle 42 sind grün.",
+        noProc: "kein laufender prozess", guest: "gast", noData: "keine Kontextdaten für dieses Programm",
+        unreadable: "nicht lesbar", reading: "lese session…", context: "kontext", usage: "auslastung",
+        model: "modell", lastAnswer: "letzte antwort", sent: "hc gesendet", received: "hc empfangen",
+        quiet: "· kein hc-verkehr in den letzten 30 min", empty: "keine daemons online — starte einen agent", q: ["„", "“"] },
+};
+const T = TEXT[LANG] || TEXT.en;
+
 const LOOK = {
-  working: { face: ["[>_ ]", "[>_▮]"], ms: 420, note: ["01", "10", "11", "00", "01"], noteMs: 140, word: "läuft" },
-  blocked: { face: ["[!_!]", "[!_!]", "[°□°]"], ms: 260, note: ["⚠", " "], noteMs: 400, word: "braucht dich" },
-  done:    { face: ["[-_-]"], ms: 1000, note: ["z", "zz", "zzz", " "], noteMs: 450, word: "fertig" },
-  idle:    { face: ["[·_·]", "[·_·]", "[·_·]", "[-_-]"], ms: 900, note: ["▮", " "], noteMs: 530, word: "wartet" },
+  working: { face: ["[>_ ]", "[>_▮]"], ms: 420, note: ["01", "10", "11", "00", "01"], noteMs: 140, word: T.working },
+  blocked: { face: ["[!_!]", "[!_!]", "[°□°]"], ms: 260, note: ["⚠", " "], noteMs: 400, word: T.blocked },
+  done:    { face: ["[-_-]"], ms: 1000, note: ["z", "zz", "zzz", " "], noteMs: 450, word: T.done },
+  idle:    { face: ["[·_·]", "[·_·]", "[·_·]", "[-_-]"], ms: 900, note: ["▮", " "], noteMs: 530, word: T.idle },
 };
 const VISIT_MS = 60 * 1000;      // a caller waits at most this long beside the one it asked
 const GIVE_UP_MS = 8 * 1000;     // …or this long once the one asked is idle/done again without answering
@@ -43,7 +61,7 @@ function hash(s) { let h = 7; for (const c of s) h = (h * 31 + c.charCodeAt(0)) 
 function kTok(n) { return n >= 1e6 ? (n / 1e6).toFixed(2) + "M" : n >= 1000 ? Math.round(n / 1000) + "k" : String(n); }
 function ago(ts) {
   const s = Math.max(0, Math.round((Date.now() - ts) / 1000));
-  return s < 60 ? `vor ${s}s` : s < 3600 ? `vor ${Math.round(s / 60)} min` : `vor ${Math.round(s / 3600)} h`;
+  return s < 60 ? T.ago(s, "s") : s < 3600 ? T.ago(Math.round(s / 60), "min") : T.ago(Math.round(s / 3600), "h");
 }
 function clock(ts) { const d = new Date(ts); return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`; }
 function textOf(content) {
@@ -109,8 +127,8 @@ export default class Daemons extends View {
     if (list.length < (guest ? 1 : 2)) return;
     const a = guest ? "laptop/t1" : list[0].address, b = list[list.length - 1].address, now = Date.now();
     this.demo = [
-      { from: a, to: b, at: now, text: "Demo: kannst du kurz die Tests laufen lassen?" },
-      { from: b, to: a, at: now + 9000, text: "Klar, alle 42 sind grün." },
+      { from: a, to: b, at: now, text: T.demoQ },
+      { from: b, to: a, at: now + 9000, text: T.demoA },
     ];
     this.scheduleBoundaries(cx);
   }
@@ -188,7 +206,7 @@ export default class Daemons extends View {
           if (!c || Date.now() - c.resolved > RESOLVE_MS) {
             const g = JSON.parse((await hc(["get", a.address, "--json"])).stdout);
             const pid = g?.foreground?.pid;
-            if (!pid) { errs[a.address] = "kein laufender prozess"; delete this.cache[a.address]; continue; }
+            if (!pid) { errs[a.address] = T.noProc; delete this.cache[a.address]; continue; }
             if (!c || c.pid !== pid) {
               const sess = JSON.parse(await sh(`cat "$HOME/.claude/sessions/${Number(pid)}.json"`));
               const slug = String(sess.cwd).replace(/[^A-Za-z0-9]/g, "-");
@@ -320,7 +338,7 @@ export default class Daemons extends View {
       .child(div().h(2))
       .child(v_flex().items_center()
         .child(div().text_size(11).text_color(t.muted).truncate().max_w(SPRITE_W).child(mach))
-        .child(div().text_size(10).text_color(t.dim).child(`${id} · gast`)));
+        .child(div().text_size(10).text_color(t.dim).child(`${id} · ${T.guest}`)));
   }
 
   // Floats above the daemon without widening its column (a wider column would shift every slot).
@@ -331,7 +349,7 @@ export default class Daemons extends View {
   bubbleCard(t, text, col) {
     return v_flex().w(210).items_center()
       .child(div().max_w(210).px(8).py(4).rounded(8).border_1().border_color(col).bg(t.popover)
-        .text_size(11).text_color(t.foreground).child(`„${text.slice(0, 64)}${text.length > 64 ? "…" : ""}“`))
+        .text_size(11).text_color(t.foreground).child(`${T.q[0]}${text.slice(0, 64)}${text.length > 64 ? "…" : ""}${T.q[1]}`))
       .child(div().text_size(10).text_color(col).child("▼"));
   }
 
@@ -354,8 +372,8 @@ export default class Daemons extends View {
 
     if (!it || it.ctx == null) {
       const err = this.errs?.[a.address];
-      const why = a.app !== "claude-code" ? "keine Kontextdaten für dieses Programm"
-        : err ? `nicht lesbar: ${err}` : "lese session…";
+      const why = a.app !== "claude-code" ? T.noData
+        : err ? `${T.unreadable}: ${err}` : T.reading;
       return body.child(div().text_color(err ? t.blocked : t.dim).child(why));
     }
     const pct = Math.min(1, it.ctx / CONTEXT_WINDOW);
@@ -366,22 +384,22 @@ export default class Daemons extends View {
 
     body = body
       .child(div().h(1).bg(t.border))
-      .child(row("kontext", `${kTok(it.ctx)} / ${kTok(CONTEXT_WINDOW)}`, barCol))
+      .child(row(T.context, `${kTok(it.ctx)} / ${kTok(CONTEXT_WINDOW)}`, barCol))
       .child(div().h(6).w(236).rounded(3).bg(t.raised)
         .child(div().h(6).rounded(3).bg(barCol).w(Math.max(3, Math.round(236 * pct)))))
-      .child(row("auslastung", `${Math.round(pct * 100)}%`, barCol))
+      .child(row(T.usage, `${Math.round(pct * 100)}%`, barCol))
       .child(row("output (log)", kTok(it.out)))
-      .child(row("modell", (it.model || "?").replace(/^claude-/, "")))
-      .child(row("letzte antwort", it.at ? ago(it.at) : "–"))
+      .child(row(T.model, (it.model || "?").replace(/^claude-/, "")))
+      .child(row(T.lastAnswer, it.at ? ago(it.at) : "–"))
       .child(row("session", it.session || "–", t.muted))
       .child(div().h(1).bg(t.border))
-      .child(row("hc gesendet", String(sent.length)))
-      .child(row("hc empfangen", String(got.length)));
+      .child(row(T.sent, String(sent.length)))
+      .child(row(T.received, String(got.length)));
     if (last) {
       const dir = last.from === a.address ? `⇢ ${this.nameOf(last.to)}` : `⇠ ${this.nameOf(last.from)}`;
       body = body
         .child(div().text_color(t.muted).text_size(11).child(`${dir} · ${clock(last.at)}`))
-        .child(div().text_color(t.dim).text_size(11).child(`„${last.text.slice(0, 70)}…“`));
+        .child(div().text_color(t.dim).text_size(11).child(`${T.q[0]}${last.text.slice(0, 70)}…${T.q[1]}`));
     }
     return body;
   }
@@ -400,7 +418,8 @@ export default class Daemons extends View {
     if (target >= 0 && target !== i) {
       const zoom = Number(settings().zoom) || 1;
       const slot = ((this.width || 1200) / zoom - 40) / list.length;
-      const dx = (target - i) * slot - Math.sign(target - i) * (SPRITE_W + 10);
+      // stop beside the one asked, but never further than halfway to its neighbour (narrow windows)
+      const dx = (target - i) * slot - Math.sign(target - i) * Math.min(SPRITE_W + 10, slot / 2);
       el = el.transition("left", { duration: WALK_MS, easing: "ease-in-out" }).left(dx);
     } else {
       el = el.transition("left", { duration: WALK_MS, easing: "ease-in-out" }).left(0);
@@ -468,7 +487,7 @@ export default class Daemons extends View {
     const recent = this.msgs.filter((m) => m.at && now - m.at < RECENT_MS).slice(-3).reverse();
     if (recent.length === 0)
       return h_flex().flex_none().h(18).px(14).text_size(11).font_family("Hack").text_color(t.dim)
-        .child("· kein hc-verkehr in den letzten 30 min");
+        .child(T.quiet);
     return h_flex().flex_none().h(18).px(14).gap(18).text_size(11).font_family("Hack").overflow_hidden()
       .children(recent.map((m, i) => {
         const live = now - m.at < LIVE_MS;
@@ -476,7 +495,7 @@ export default class Daemons extends View {
           .child(div().child(this.nameOf(m.from)))
           .child(live ? div().w(36).frames(PACKET, 160) : div().child("⇢"))
           .child(div().child(this.nameOf(m.to)))
-          .child(div().text_color(t.dim).child(`${clock(m.at)} „${m.text.slice(0, 34)}…“`));
+          .child(div().text_color(t.dim).child(`${clock(m.at)} ${T.q[0]}${m.text.slice(0, 34)}…${T.q[1]}`));
       }));
   }
 
@@ -497,14 +516,14 @@ export default class Daemons extends View {
         .child(div().text_color(t.accent).frames(["▌", " "], 600))
         .child(div().text_color(t.muted).child(`THE GRID · ${list.length} daemon${list.length === 1 ? "" : "s"}`)))
       .child(h_flex().gap(14)
-        .child(div().text_color(t.working).child(`▸ ${count("working")} läuft`))
-        .child(div().text_color(t.blocked).child(`! ${count("blocked")} braucht dich`))
-        .child(div().text_color(t.done).child(`✓ ${count("done")} fertig`))
-        .child(div().text_color(t.idle).child(`· ${count("idle")} wartet`)));
+        .child(div().text_color(t.working).child(`▸ ${count("working")} ${T.working}`))
+        .child(div().text_color(t.blocked).child(`! ${count("blocked")} ${T.blocked}`))
+        .child(div().text_color(t.done).child(`✓ ${count("done")} ${T.done}`))
+        .child(div().text_color(t.idle).child(`· ${count("idle")} ${T.idle}`)));
 
     const field = list.length === 0
       ? h_flex().flex_1().justify_center().items_center().text_size(12).font_family("Hack").text_color(t.dim)
-          .frames(["keine daemons online — starte einen agent ▮", "keine daemons online — starte einen agent  "], 600)
+          .frames([`${T.empty} ▮`, `${T.empty}  `], 600)
       : h_flex().flex_1().min_h(0).justify_around().items_end().pb(8).px(20)
           .children(list.map((a, i) => this.daemon(t, a, now, i, list)));
 

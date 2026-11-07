@@ -7,6 +7,8 @@ with heart eyes and three retro-RPG hops, and walks home.
 
 ![Ghost Grid](preview.png)
 
+![Ghost Grid: the thank-you after an answer](preview-thanks.png)
+
 ## What you see
 
 Left to right, top to bottom (the `main` layout's structure, restyled):
@@ -17,7 +19,7 @@ Left to right, top to bottom (the `main` layout's structure, restyled):
   **status bar** (28 px) transparent over `chrome` = `#05100ce6`.
 - **THE GRID** (block `grid`, 200 px, min 120, max 400, background `#05100cb0`) above the terminals, mod `daemons`:
   - header row (24 px, Hack 11): blinking `▌`, `THE GRID · N daemons`, right: counts
-    `▸ läuft  ! braucht dich  ✓ fertig  · wartet` in the status colors;
+    `▸ working  ! needs you  ✓ done  · idle` in the status colors;
   - ticker row (18 px): the last three `hc` messages of the last 30 min, `from ⇢ to HH:MM „text…“`,
     a live one (< 90 s) in accent with a moving packet `···⇢`;
   - the field: one daemon per agent, evenly spread (`justify_around`), bottom-aligned. A daemon is a
@@ -54,10 +56,10 @@ Daemon faces (native `.frames`, motion with native `.loop`/`.transition`, no tim
   4. the caller walks home. No answer: it walks home once the one asked is idle/done again (after 8 s), at the latest after 60 s.
   A message counts as an answer only if the other side has an open question (chronological pairing).
 - **Guests**: a sender with no daemon on this screen (an unconnected machine) appears as a translucent
-  ghost `[◇_◇]` beside the one it asks, labelled with its machine and `tN · gast`.
+  ghost `[◇_◇]` beside the one it asks, labelled with its machine and `tN · guest`.
 - `ctrl-shift-d` (layout `ghost-grid`) or `herdr-app do daemons.demo` plays a made-up visit between the
   first and last daemon; `daemons.demo-guest` one from a ghost. Nothing is sent to anyone.
-- Empty: `keine daemons online — starte einen agent ▮`.
+- Empty: `no daemons online — start an agent ▮`.
 
 ## Built from
 
@@ -93,7 +95,7 @@ Daemon faces (native `.frames`, motion with native `.loop`/`.transition`, no tim
   `settings().zoom` before using it for `left`.
 - Speech bubbles must float (`absolute`) above the daemon; a wider column would shift every slot.
 - The context window is assumed 1M tokens (`CONTEXT_WINDOW`).
-- UI words are German (`läuft`, `braucht dich`, `fertig`, `wartet`, `gast`).
+- UI language: `LANG` at the top of `mods/daemons/main.js`, `"en"` (default) or `"de"`; all words live in `TEXT`.
 - `install.sh` copies the files, never overwrites differing ones without `--force`, adds the
   `ctrl-shift-d` key and sets `theme: ghost-grid` in settings.
 
@@ -101,7 +103,7 @@ Daemon faces (native `.frames`, motion with native `.loop`/`.transition`, no tim
 
 - `herdr-app check mods/daemons` passes and `layout.switch {"name":"ghost-grid"}` shows the grid with one
   daemon per agent, the right face per status, and the background through every panel.
-- Hovering a Claude Code daemon shows its context tokens; a broken read shows `nicht lesbar: …` in red.
+- Hovering a Claude Code daemon shows its context tokens; a broken read shows `can't read: …` in red.
 - `herdr-app do daemons.demo`: the first daemon walks to the last, question bubble, answer bubble 6 s,
   three synchronous hops with heart eyes, walk home.
 - A real `hc send` between two Claude Code agents (also across connected machines) plays the same
