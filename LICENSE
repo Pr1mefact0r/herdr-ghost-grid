@@ -1,3 +1,12 @@
+This repository is licensed under the MIT License below, with one exception:
+
+  layouts/ghost-grid.json and layouts/ghost-grid-plain.json are derived from the "main" layout that
+  ships with Herdr (https://herdr.dev, version 0.1.13), which is licensed under the Apache License 2.0.
+  They were modified (theme, colours, transparency, background, pane frames, the added "grid" block).
+  These two files remain under the Apache License 2.0; see LICENSES/Apache-2.0.txt.
+
+---------------------------------------------------------------------------------------------------
+
 MIT License
 
 Copyright (c) 2026 Pr1mefact0r

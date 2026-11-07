@@ -137,4 +137,5 @@ Daemon faces (native `.frames`, motion with native `.loop`/`.transition`, no tim
 
 ## License
 
-MIT – see `LICENSE`.
+MIT – see `LICENSE`, except `layouts/*.json`: derived from Herdr's `main` layout, Apache-2.0
+(`LICENSES/Apache-2.0.txt`).

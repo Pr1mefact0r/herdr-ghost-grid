@@ -52,6 +52,14 @@ Switch layouts with `ctrl-shift-l`. The font **Hack** is recommended (`sudo apt 
 The daemons mod only reads: Herdr's live agent data, plus each Claude Code agent's own session files
 on the machine it runs on. Details, data sources and the build recipe: [RECIPE.md](RECIPE.md).
 
+## Credits
+
+- Built for [Herdr](https://herdr.dev). The two layout files are derived from Herdr's shipped `main`
+  layout (Apache-2.0) and modified — see [LICENSE](LICENSE) and [LICENSES/Apache-2.0.txt](LICENSES/Apache-2.0.txt).
+- Terminal font: [Hack](https://github.com/source-foundry/Hack) (MIT / Bitstream Vera), not included —
+  the background's glyphs are rendered with it.
+- Screenshots and videos show Herdr's own interface around the layout.
+
 ## License
 
-MIT – see [LICENSE](LICENSE).
+MIT – see [LICENSE](LICENSE), except the two layout files (Apache-2.0, derived from Herdr).
