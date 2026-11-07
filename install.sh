@@ -9,7 +9,7 @@ FORCE=0; [ "${1:-}" = "--force" ] && FORCE=1
 [ -d "$DST" ] || { echo "✗ $DST fehlt – Herdr einmal starten, dann nochmal"; exit 1; }
 
 files=(layouts/ghost-grid.json layouts/ghost-grid.svg layouts/ghost-grid-plain.json layouts/ghost-grid-plain.svg
-       themes/ghost-grid.json backgrounds/ghost-grid.jpg mods/daemons/main.js mods/daemons/mod.json)
+       themes/ghost-grid.json backgrounds/ghost-grid.jpg mods/daemons/main.js mods/daemons/stage.js mods/daemons/mod.json)
 for f in "${files[@]}"; do
   if [ -e "$DST/$f" ] && [ $FORCE -eq 0 ] && ! cmp -s "$SRC/$f" "$DST/$f"; then
     echo "✗ $DST/$f existiert schon und ist anders – mit --force überschreiben"; exit 1

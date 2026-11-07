@@ -13,7 +13,10 @@ on top where every coding agent is a little terminal daemon.
   appears in a speech bubble, the answer above the other one, then both say thanks with heart eyes and
   three retro-RPG hops before the caller walks home. Works across connected machines too.
 - **Meetings** – when one agent hands out tasks to several others, they come to it, line up small in
-  front of their supervisor and answer *aye aye, captain!*
+  front of their supervisor and answer *aye aye, captain!* Reports that come back while another is still
+  being thanked are thanked together (`✓ thanks ×N`) and everyone hops at once.
+- **Calm traffic** – only messages travel on the upper track (as data packets where they pass each other);
+  everyone else just makes room on the ground. Nobody walks through anybody.
 - **Crowded? They gather.** When the field gets too narrow, daemons gather by status, one status at a
   time: idle ones camp at a **campfire**, working ones share a **LAN party**, done ones sleep in a **tent**,
   and last of all those that need you crowd together in **panic** (shaking, alarm light). A gathered daemon
@@ -21,11 +24,11 @@ on top where every coding agent is a little terminal daemon.
 - **Hover a daemon** for its context usage, model, last answer and `hc` traffic (Claude Code agents).
 - **Ghostly jade theme** over a grid of falling hex glyphs, translucent panels, Hack font.
 
-![A visit: walk over, ask, answer, three hops, walk home](demo.webp)
+![A meeting: three helpers line up in front of their captain, aye aye, go home – later two report back and are thanked together](demo.webp)
 
 *Full resolution video: [`demo.mp4`](demo.mp4)*
 
-![Many agents: campfire, LAN party, panic — and a visit straight out of the groups](demo-groups.webp)
+![1920×1080: the same with idle agents at the campfire – helpers come straight out of their group and go back into it](demo-groups.webp)
 
 ## Install
 
@@ -48,6 +51,10 @@ Switch layouts with `ctrl-shift-l`. The font **Hack** is recommended (`sudo apt 
 - UI language: `LANG` at the top of `mods/daemons/main.js` – `"en"` (default) or `"de"`.
 - Context window used for the usage bar: `CONTEXT_WINDOW` (default 1M tokens).
 - Transparency: `terminal_opacity` and the `colors` / `background` values in `layouts/ghost-grid.json`.
+  **It looks different on every monitor** (size, resolution, panel, gamma): the same values can look much
+  more see-through on a laptop than on a desktop screen. If it is too busy or too dark for you, just ask
+  your agent in Herdr – e.g. *"make Ghost Grid's panels less transparent"* – it can tune these values
+  for your screen.
 
 ## How it works
 

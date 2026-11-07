@@ -7,6 +7,7 @@
 //   ~/.claude/projects/<cwd-slug>/<sessionId>.jsonl (tail) -> last usage, received <hc from="..."> messages
 import { View, div } from "gpui-kit";
 import { v_flex, h_flex, HoverCard } from "gpui-base";
+import { newStage, plan, view, CFG } from "./stage.js";
 import { agents, spaces, machines, run, theme, setAgentOrder, hc, exec, settings, nextCommand } from "herdr";
 
 const SPRITE_W = 120;
@@ -57,9 +58,14 @@ const HOPS = 3;
 const WALK_MS = 2800;
 const SHIFT_MS = 1000;           // others sliding aside to make room
 const DEPART_MS = SHIFT_MS + 1500; // a caller sets off this long after sending (a 2nd task meanwhile = meeting)
-const STACK_H = 24;              // height of one small daemon in a meeting stack
+const STACK_H = 24;
+const TAG_OFF_MS = 450;          // a traveller's tag goes this long before it comes down              // height of one small daemon in a meeting stack
 const RISE_MS = 550;             // a gathered daemon first rises out of its group, in place
-const LANE_UP = 62;             // above the others' faces, tags and pills             // a walking caller goes over the others' heads, this high
+const LANE_UP = 62;              // the upper track: all changes of place run up here, over the others' heads
+const SPEED = 0.52;              // px per ms on the track (unzoomed): same speed for all, so nobody overtakes
+const RISE_UP_MS = 300;          // up onto the track / down off it
+const PKT_R = 110;               // around a switch (or a crossing) daemons travel as data packets, this far
+const MORPH_MS = 220;            // the glitchy change between daemon and packet
 const ANSWER_MS = 6 * 1000;    // the answer stays readable this long, then both say thanks
 const AFTER_REPLY_MS = ANSWER_MS + HOP_MS * HOPS;   // three hops in step, retro-RPG style, then the caller walks home
 const LOVE = { face: ["[♥_♥]", "[♥‿♥]"], ms: 500 };   // the thank-you: heart eyes and a little hop
@@ -105,6 +111,11 @@ export default class Daemons extends View {
       const sig = agents().map((a) => `${a.address}:${a.status}:${a.seq}`).join("|");
       if (sig !== this.lastSig) { this.lastSig = sig; this.refresh(cx); }
       if (this.kick) { this.kick = false; cx.notify(); }   // new elements start moving from where they came
+    });
+    // the script's own clock: redraw exactly when a planned phase starts (rise, go, morph, packet, land)
+    cx.timer.every(80, (cx) => {
+      const now = Date.now();
+      if (this.stage?.marks.some((m) => m > (this.lastMark ?? 0) && m <= now)) { this.lastMark = now; cx.notify(); }
     });
     this.refresh(cx);
     cx.spawn(async (cx) => {
@@ -176,10 +187,11 @@ export default class Daemons extends View {
       { from: h, to: L[L.length - 1], at: now, text: task },
       { from: h, to: L[2], at: now + 1200, text: task },
       { from: h, to: L[L.length - 2], at: now + 2400, text: task },
-      { from: L[2], to: h, at: now + 17000, text: T.demoA },
-      { from: L[L.length - 1], to: h, at: now + 21000, text: T.demoA },
+      // reports come back once the meeting is over and everybody is home again (as real ones would)
+      { from: L[2], to: h, at: now + 30000, text: T.demoA },
+      { from: L[L.length - 1], to: h, at: now + 32500, text: T.demoA },
     ];
-    for (let d = 0; d < 46000; d += 500) cx.timer.after(d, (cx) => cx.notify());
+    for (let d = 0; d < 62000; d += 500) cx.timer.after(d, (cx) => cx.notify());
   }
 
   // Reads one agent's transcript tail: usage, received <hc from> messages, and its own `hc send`s.
@@ -383,16 +395,30 @@ export default class Daemons extends View {
       flush();
     }
     // answers to a meeting's tasks come later as normal visits to the sender, thanked automatically
+    // Several reports to the same one that overlap (the next arrives before the thanks of the earlier) are
+    // thanked together: everybody waits beside it until the last has reported, then one "✓ thanks ×N",
+    // all hop together and go home together.
+    const reports = [];
     for (const q of this.msgs) {
       if (!q.meeting || !q.reply) continue;
       const r = q.reply; q.reply = null; r.isReply = false; r.report = true;
-      r.reply = { from: q.from, to: r.from, at: start(r) + DEPART_MS + RISE_MS + WALK_MS + 3000, text: T.thanks, synthetic: true };
+      reports.push({ r, host: q.from, ready: start(r) + DEPART_MS + RISE_MS + WALK_MS + 3000 });
+    }
+    reports.sort((a, b) => start(a.r) - start(b.r));
+    const clusters = [];
+    for (const x of reports) {
+      const c = clusters.find((c) => c.host === x.host && start(x.r) < c.at);
+      if (c) { c.members.push(x); c.at = Math.max(c.at, x.ready); } else clusters.push({ host: x.host, members: [x], at: x.ready });
+    }
+    for (const c of clusters) {
+      const n = c.members.length, text = n > 1 ? `${T.thanks} ×${n}` : T.thanks;
+      for (const x of c.members) x.r.reply = { from: c.host, to: x.r.from, at: c.at, text, synthetic: true };
     }
     const live = this.meetings.filter((M) => now < M.end + WALK_MS);
     const crowd = false;   // a meeting needs one slot only (members stack), so it never has to collapse
     for (const M of live) {
       M.collapsed = crowd;
-      if (now < M.end + (M.members.length - 1) * 600) this.meetHost.set(M.host, M);
+      if (now < M.end) this.meetHost.set(M.host, M);
       // nearest first: it takes the bottom of the stack and arrives first; the farthest sets off last,
       // sits on top and is the first to leave — so nobody runs into anybody, coming or going
       const idx = (addr) => { const p = this.lay?.slotOf?.(addr); return p != null && p >= 0 ? p : agents().findIndex((a) => a.address === addr); };
@@ -409,7 +435,7 @@ export default class Daemons extends View {
       for (const [k, x] of M.members.entries()) {
         if (crowd) { if (now < M.end) this.meetMember.set(x.addr, M); continue; }
         // they leave one after another, top of the stack first, so they never start in a heap
-        const until = M.end + (M.members.length - 1 - k) * 600;
+        const until = M.end;
         this.meetVisits.set(x.addr, { m: { from: x.addr, to: M.host, at: x.go, seen: 0, text: "" }, reply: null,
           active: now < until, until, meeting: M, k });
       }
@@ -455,10 +481,10 @@ export default class Daemons extends View {
 
   // Floats above the daemon without widening its column (a wider column would shift every slot).
   // edge: -1 at the field's left end (bubble opens rightwards), 1 at the right end (opens leftwards), 0 centred
-  bubbleSay(t, text, col, edge = 0, lvl = 0) {
+  bubbleSay(t, text, col, edge = 0, lvl = 0, maxW = 210, side = 0) {
     const w = this.lay?.spriteW ?? SPRITE_W;
-    const bw = Math.round(Math.max(130, Math.min(210, (this.lay?.slot ?? 200) * 2 - 16)));
-    const left = edge < 0 ? 0 : edge > 0 ? w - bw : (w - bw) / 2;
+    const bw = Math.round(Math.min(maxW, Math.max(130, Math.min(210, (this.lay?.slot ?? 200) * 2 - 16))));
+    const left = side > 0 ? w * 0.75 : side < 0 ? w * 0.25 - bw : edge < 0 ? 0 : edge > 0 ? w - bw : (w - bw) / 2;
     return div().relative().w(w).h(16).child(this.bubbleCard(t, text, col, bw).absolute().bottom(lvl * 34).left(left));
   }
 
@@ -527,7 +553,7 @@ export default class Daemons extends View {
     return body;
   }
 
-  daemon(t, a, now, i, list, xTo, lift = false, hold = false) {
+  daemon(t, a, now, el, vw) {
     const look = LOOK[a.status] ?? LOOK.idle;
     const c = this.color(t, a.status);
     const h = hash(a.address);
@@ -535,48 +561,34 @@ export default class Daemons extends View {
     // drift only as far as the free space beside it allows (never into a neighbour)
     const roam = Math.min(40 + (h % 30), Math.max(0, (L.slot - L.boxW) / 2 - 4));
 
-    let el = v_flex().id(`d-${a.address}`).relative().w(L.spriteW).items_center().gap(2)
+    let el2 = v_flex().id(`d-${a.address}`).relative().w(L.spriteW).items_center().gap(2)
       .cursor_pointer().on_click(() => run("agent.focus", { terminal: a.address }));
-    // Every daemon sits at an absolute x in the field; changing it animates. A caller walks to its reserved
-    // spot beside the one it asked (and back); everyone else slides aside when room is made.
+    // Position comes only from the committed stage (see stage.js): its x, and a trip if it is travelling.
     const visit = this.visitOf(a.address, now);
-    const spotP = visit ? L.spotOf(a.address) : -1;
-    const target = visit?.active ? spotP : -1;
-    // Phases by the clock (renders may come in bursts; frames can't be counted on):
-    //   own slot: [s0, s0+SHIFT) others make room · [s0+SHIFT, +WALK) walk over
-    //   from a group: [s0, s0+SHIFT) still in the group · [+SHIFT, +RISE) rise out in place · [+RISE, +WALK) walk over
-    //   back: [until, until+WALK) walk home (to its slot, or into its group of now)
-    const fromGroup = L.grouped?.has(a.address);
-    const s0 = visit ? start(visit.m) : 0;
-    const walkFrom = s0 + DEPART_MS + (fromGroup ? RISE_MS : 0);
-    const rising = target >= 0 && fromGroup && now < walkFrom;
-    const walking = lift || spotP >= 0 && ((visit.active && now >= s0 + DEPART_MS && now < walkFrom + WALK_MS)
-      || (!visit.active && now < visit.until + WALK_MS));
-    const leaving = target >= 0 && now < walkFrom;                 // not on its way yet
-    const homeX = fromGroup ? this.groupX?.get(a.address) ?? L.xOf(i) : L.xOf(i);
-    // stand right beside the one asked (a sprite's width away), not in the middle of the reserved slot,
-    // which in a wide field can be far off; the reserved slot only guarantees room when it is narrow
-    const tp = visit ? L.slotOf(visit.m.to) : -1;
-    const mt = L.meetOf?.(a.address);
-    const meetX = target >= 0 && tp >= 0
-      ? L.xOf(tp) + (mt ? mt.dir * mt.dist : Math.sign(target - tp)) * Math.min(L.slot, L.spriteW + 12) : L.xOf(target);
-    const x = xTo ?? (target >= 0 && !leaving ? meetX : leaving ? homeX : L.xOf(i));
-    const home = visit && now - visit.until < WALK_MS + REFRESH_MS;
-    let pos = this.placed(`p-${a.address}`, x, (target >= 0 && !leaving) || home ? WALK_MS : SHIFT_MS, this.groupX?.get(a.address), rising || hold);
-    // drifting only while nobody is talking (everyone watches a conversation) and never into a neighbour
-    if (target < 0 && a.status === "working" && !home && !L.talking && roam >= 4)
+    const isCaller = !!(el.away && visit && visit.m.from === a.address);
+    const mt = isCaller ? L.meetOf?.(a.address) : null;
+    const st = vw.st, x = vw.x;
+    const walking = !!(st && st.up);
+    const arrived = el.away && (!st || st.landed);
+    let pos = this.placed(`p-${a.address}`, x, st ? st.glide : (this.stage?.shift ?? CFG.SHIFT_MS), null, false, st && st.linear ? "linear" : "ease-in-out");
+    // drifting only while the stage is still and nobody is talking, and never into a neighbour
+    if (!el.away && !st && !this.stage.tx && a.status === "working" && !L.talking && roam >= 4)
       pos = pos.loop("left", { from: (x - roam) * L.zoom, to: (x + roam) * L.zoom, period: 5200 + (h % 2600), easing: "ease-in-out" });   // loop() values aren't zoomed, left() is
-    // in a meeting stack: small, one above the other in front of the supervisor
-    const stacked = visit?.meeting && visit.active && !walking && now >= start(visit.m) + DEPART_MS;
-    // each member of a meeting walks on its own lane (higher per stack place), so they never cross
-    const lane = LANE_UP + (visit?.meeting ? (mt?.stack ?? visit.k ?? 0) * 30 : 0);
-    el = el.transition("top", { duration: 260, easing: "ease-out" }).top(walking ? -lane : stacked ? -(mt?.stack ?? 0) * STACK_H : 0);
+    // a meeting member is small from the moment it rises, and comes down straight onto its place in the
+    // stack in front of the supervisor (never full size on the ground, where another one already stands)
+    const rose = !!(vw.tr && now >= vw.tr.tUp), landedHome = !!(vw.tr && el.returning && now >= vw.tr.tArr);
+    const member = !!(el.meta?.meeting && (el.away || (el.returning && !landedHome)));
+    const stacked = member && !walking;
+    el2 = el2.transition("top", { duration: CFG.RISE_UP_MS, easing: "ease-out" })
+      .top(walking ? -(LANE_UP - 8 + (vw.tr?.lane ?? 0) * 18) : stacked ? -(el.meta.stack ?? 0) * STACK_H : 0);
+    const form = st?.form ?? "daemon";
+    const tagOn = !!(st && vw.tr && now < vw.tr.tArr - TAG_OFF_MS);
     if (a.status === "blocked" && !walking)   // its bounce would override the lane: walking it stays up
-      el = el.loop("top", { from: -12, to: 0, period: 520, easing: "ease-out" });
+      el2 = el2.loop("top", { from: -12, to: 0, period: 520, easing: "ease-out" });
     if (a.status === "idle")
-      el = el.loop("opacity", { from: 0.45, to: 0.85, period: 3200 + (h % 1200) });
+      el2 = el2.loop("opacity", { from: 0.45, to: 0.85, period: 3200 + (h % 1200) });
 
-    const out = this.msgs.filter((m) => m.from === a.address && now - m.at < LIVE_MS).pop();
+    const sentNow = this.msgs.filter((m) => m.from === a.address && now - m.at < LIVE_MS).pop();
     const inn = this.msgs.filter((m) => m.to === a.address && now - m.at < LIVE_MS).pop();
 
     let bubble;
@@ -585,40 +597,40 @@ export default class Daemons extends View {
         .whitespace_nowrap().truncate().max_w(L.spriteW).child(L.slot < 110 ? "!" : `! ${a.app ?? "agent"}`).loop("opacity", { from: 0.55, to: 1, period: 700 });
     } else if (this.meetHost.get(a.address)) {
       const M = this.meetHost.get(a.address), n = M.members.length;
-      const first = Math.max(...(M.arrive || [M.s0 + DEPART_MS]));   // once all are there
+      // once all are really there: every member committed beside it and its trip landed
+      const landed = (addr) => { const e = this.stage?.els.get(`a:${addr}`); if (!e || !e.away || !e.meta?.meeting) return false;
+        const tr = e.trip && this.stage.trips.get(e.trip); return !tr || now >= tr.tDown; };
+      if (M.members.every((x) => landed(x.addr)) && !M.allAt) M.allAt = now;
+      this.allAt = this.allAt || new Map(); const ak = `${M.host}@${M.s0}`;
+      if (M.allAt && !this.allAt.has(ak)) this.allAt.set(ak, M.allAt);
+      const first = this.allAt.get(ak) ?? Infinity;
       const anyArrived = now >= first && now < first + 3500;
       bubble = now >= first + 3500 ? div().h(16) : anyArrived
-        ? this.bubbleSay(t, `⌂ ${T.tasks(n)} · ${M.text}`, t.accent, this.edgeOf(i), 0)
+        ? this.bubbleSay(t, `⌂ ${T.tasks(n)}`, t.accent, this.edgeOfX(x), 0, 96)   // short: the task itself is in the ticker
         : div().px(6).rounded(4).border_1().border_color(t.accent).text_color(t.accent).text_size(11).font_family("Hack")
             .whitespace_nowrap().truncate().max_w(L.spriteW).child(`⌂ ${n}`).loop("opacity", { from: 0.5, to: 1, period: 600 });
     } else if (this.meetMember.get(a.address)) {
       bubble = div().px(6).rounded(4).border_1().border_color(t.accent).text_color(t.accent).text_size(11).font_family("Hack")
         .whitespace_nowrap().truncate().max_w(L.spriteW).child(`⌂ ${this.nameOf(this.meetMember.get(a.address).host)}`)
         .loop("opacity", { from: 0.5, to: 1, period: 600 });
-    } else if (target >= 0 && target !== i && visit.meeting) {
-      const arrived = now >= start(visit.m) + DEPART_MS + (L.grouped?.has(a.address) ? RISE_MS : 0) + WALK_MS;
+    } else if (isCaller && visit.meeting) {
       const M = visit.meeting, top = (mt?.stack ?? 0) === M.members.length - 1;
-      const ayeAt = Math.max(...M.arrive) + 3500;
-      bubble = arrived ? (top && now >= ayeAt && visit.active ? this.bubbleSay(t, `${T.aye}${M.members.length > 1 ? " ×" + M.members.length : ""}`, t.done, this.edgeOf(target), 0) : div().h(16))
-        : div().px(6).rounded(4).border_1().border_color(t.accent).text_color(t.accent).text_size(11).font_family("Hack")
-            .whitespace_nowrap().truncate().max_w(L.spriteW).child(`⌂ ${this.nameOf(visit.m.to)}`);
-    } else if (target >= 0 && target !== i) {
+      const ayeAt = (this.allAt?.get(`${M.host}@${M.s0}`) ?? Infinity) + 3500;
+      bubble = arrived ? (top && now >= ayeAt && visit.active ? div().px(6).rounded(4).border_1().border_color(t.done).bg("#d9cf8c22").text_color(t.done).text_size(11)
+          .font_family("Hack").whitespace_nowrap().child(`${T.aye}${M.members.length > 1 ? " ×" + M.members.length : ""}`)
+          .loop("opacity", { from: 0.7, to: 1, period: 500 }) : div().h(16))
+        : !tagOn ? div().h(16) : div().px(6).rounded(4).border_1().border_color(t.accent).text_color(t.accent).text_size(11).font_family("Hack")
+            .whitespace_nowrap().truncate().max_w(L.spriteW).child(a.space_name);
+    } else if (isCaller) {
       // the question only once it has arrived beside its partner; on the way just a small tag
-      const arrived = now >= start(visit.m) + DEPART_MS + (L.grouped?.has(a.address) ? RISE_MS : 0) + WALK_MS;
       bubble = visit.reply ? div().h(16)
-        : arrived ? this.bubbleSay(t, visit.m.text, t.accent, this.edgeOf(target), L.levelOf(a.address, visit.m.to))
-        : div().px(6).rounded(4).border_1().border_color(t.accent).text_color(t.accent).text_size(11).font_family("Hack")
-            .whitespace_nowrap().truncate().max_w(L.spriteW).child(`⇢ ${this.nameOf(visit.m.to)}`);
+        : arrived ? this.bubbleSay(t, visit.m.text, t.accent, this.edgeOfX(x), L.levelOf(a.address, visit.m.to))
+        : !tagOn ? div().h(16) : div().px(6).rounded(4).border_1().border_color(t.accent).text_color(t.accent).text_size(11).font_family("Hack")
+            .whitespace_nowrap().truncate().max_w(L.spriteW).child(a.space_name);
     } else if (this.answering(a.address, now)) {
       const r = this.answering(a.address, now);
-      bubble = r.reply ? (now - start(r.reply) < ANSWER_MS ? this.bubbleSay(t, r.reply.text, t.done, this.edgeOf(i), L.levelOf(r.m.from, a.address)) : div().h(16))
-        : div().px(6).rounded(4).border_1().border_color(t.accent).text_color(t.accent).text_size(11).font_family("Hack")
-            .whitespace_nowrap().truncate().max_w(L.spriteW).child(`⇠ ${this.nameOf(r.m.from)}`).loop("opacity", { from: 0.5, to: 1, period: 600 });
-    } else if (out || inn) {
-      const m = out || inn;
-      const label = out ? `⇢ ${this.nameOf(m.to)}` : `⇠ ${this.nameOf(m.from)}`;
-      bubble = div().px(6).rounded(4).border_1().border_color(t.accent).bg("#7ddcb422").text_color(t.accent)
-        .text_size(11).font_family("Hack").child(label).loop("opacity", { from: 0.5, to: 1, period: 600 });
+      bubble = r.reply ? (now - start(r.reply) < ANSWER_MS ? this.bubbleSay(t, r.reply.text, t.done, this.edgeOfX(x), L.levelOf(r.m.from, a.address)) : div().h(16))
+        : div().h(16).text_size(11).text_color(c).opacity(0.8).frames(look.note, look.noteMs);
     } else {
       bubble = div().h(16).text_size(11).text_color(c).opacity(0.8).frames(look.note, look.noteMs);
     }
@@ -629,35 +641,69 @@ export default class Daemons extends View {
     const thanks = (v) => v && v.reply && now - start(v.reply) >= ANSWER_MS;
     const love = (visit?.active && thanks(visit)) || (answered && thanks(answered));
     // both hop together, three times, then it's over
-    if (love) el = el.loop("top", { from: 0, to: -12, period: HOP_MS, easing: "ease-out" });
-    const body = div().px(8).py(2).rounded(6).border_1().border_color(love ? "#ff7ab6" : c)
-      .bg(a.focused ? t.selected : "#050d0ab0")
-      .text_size(stacked || walking ? Math.round(L.face * 0.6) : L.face).font_family("Hack").font_weight(700).text_color(love ? "#ff7ab6" : c).whitespace_nowrap()
-      .frames(love ? LOVE.face : look.face, love ? LOVE.ms : look.ms);
+    if (love) el2 = el2.loop("top", { from: 0, to: -12, period: HOP_MS, easing: "ease-out" });
+    let body;
+    if (form === "packet") {          // a data packet with a light trail, flying past the other one
+      const trail = st.dir > 0 ? ["  ·◆", " ··◆", "···◆", " ··◆"] : ["◆·  ", "◆·· ", "◆···", "◆·· "];
+      body = div().px(2).text_size(Math.round(L.face * 0.75)).font_family("Hack").font_weight(700).text_color(t.accent)
+        .whitespace_nowrap().frames(trail, 70).loop("opacity", { from: 0.7, to: 1, period: 240 });
+    } else if (form === "morph") {    // glitching between daemon and packet
+      body = div().px(4).py(1).rounded(3).border_1().border_color(t.accent).bg("#7ddcb422")
+        .text_size(Math.round(L.face * 0.6)).font_family("Hack").font_weight(700).text_color(t.accent).whitespace_nowrap()
+        .frames(["[▚▞]", "<▞▚>", "[░▒]", "<▓>", "▚◆▞"], 45).loop("opacity", { from: 0.4, to: 1, period: 120 });
+    } else {
+      body = div().px(8).py(2).rounded(6).border_1().border_color(love ? "#ff7ab6" : c)
+        .bg(a.focused ? t.selected : "#050d0ab0")
+        .text_size(member || walking ? Math.round(L.face * 0.6) : L.face).font_family("Hack").font_weight(700).text_color(love ? "#ff7ab6" : c).whitespace_nowrap()
+        .frames(love ? LOVE.face : look.face, love ? LOVE.ms : look.ms);
+    }
+    if (tagOn && walking && form === "daemon" && !isCaller)   // going home: its own name on top
+      bubble = div().px(6).rounded(4).border_1().border_color(t.accent).text_color(t.accent).text_size(11).font_family("Hack")
+        .whitespace_nowrap().truncate().max_w(L.spriteW).child(a.space_name);
+    if (form !== "daemon") bubble = div().h(16);   // packets carry no tags
     const meter = div().h(2).w(64).rounded(1).bg(t.raised)
       .child(div().h(2).rounded(1).bg(pct == null ? t.raised : pct > 0.8 ? t.blocked : pct > 0.5 ? t.done : t.accent)
         .w(pct == null ? 0 : Math.max(2, Math.round(64 * pct))));
 
-    const label = v_flex().items_center().opacity(walking || stacked ? 0 : 1)
+    const label = v_flex().items_center().opacity(walking || stacked || el.leaving ? 0 : 1)
       .child(div().text_size(11).text_color(t.foreground).truncate().max_w(L.spriteW).child(a.space_name))
       .child(div().text_size(10).text_color(t.dim).truncate().max_w(L.spriteW).child(`${a.tab_name} · ${look.word}`));
 
-    el = el.child(bubble).child(body).child(meter).child(label);
+    el2 = el2.child(bubble).child(body).child(form === "daemon" ? meter : div().h(2)).child(label);
     return pos.child(HoverCard.new(`hc-${a.address}`).open_delay(250).close_delay(150).anchor("top_center")
-      .trigger(el).content(this.card(t, a)));
+      .trigger(el2).content(this.card(t, a)));
+  }
+
+  // ---------------------------------------------------------------------------------------------
+  // The script ("Drehbuch"). A change of place is a trip, planned once and then never changed: rise onto
+  // the upper track, travel at a constant speed (nobody overtakes), come down. Where two trips would meet
+  // head-on, the later one is timed so they meet at a switch (1–3, by width); around it both travel as
+  // data packets and pass each other. The layout under them stays frozen while anyone is on the track.
+  // ---------------------------------------------------------------------------------------------
+  switches() {
+    const w = this.lay ? this.lay.slot * this.lay.slots : 1200;
+    const n = w < 1400 ? 1 : w < 2600 ? 2 : 3;
+    return Array.from({ length: n }, (_, k) => 20 + w * (k + 0.5) / n);
+  }
+
+  // a bubble near an end of the field opens inwards
+  edgeOfX(x) {
+    const L = this.lay; if (!L) return 0;
+    const centre = x + L.spriteW / 2, half = 105, w = L.slot * L.slots + 40;
+    return centre < half ? -1 : centre > w - half ? 1 : 0;
   }
 
   // A positioned wrapper. A freshly mounted element would animate its `left` in from 0 (the field's left
   // edge), so the first frame of a new one stands still where it comes from — the group it just left, or
   // its own slot — and only the next frame moves it, with the transition.
-  placed(id, x, ms, from, hold = false) {
+  placed(id, x, ms, from, hold = false, easing = "ease-in-out") {
     const seen = this.seenX?.has(id);
     const at = hold || seen ? x : (from ?? x);
     this.nextSeenX.set(id, at);
     let el = div().id(id).absolute().bottom(8).left(at);
     // GPUI animates only changes *after* a transition is attached, so it is attached from the second render
     // on — also while holding still — and the first move after a hold glides instead of jumping
-    if (seen) el = el.transition("left", { duration: ms, easing: "ease-in-out" });
+    if (seen) el = el.transition("left", { duration: ms, easing });
     else this.kick = true;                         // a second render soon, to attach it
     return el;
   }
@@ -668,7 +714,7 @@ export default class Daemons extends View {
   statusGroup(t, st, group) {
     const L = this.lay, n = group.length;
     const chars = { idle: 13, working: 11, done: 5, blocked: 10 }[st];
-    const f = Math.max(9, Math.min(L.face, Math.floor((L.slot - 26) / (chars * 0.62))));   // the scene fits its slot
+    const f = Math.max(8, Math.min(L.face, Math.floor((L.fitSlot - 40) / (chars * 0.66))));   // the scene fits its slot
     const col = this.color(t, st);
     const fire = "#ffb36b", ember = "#ff7a45";
     const scene = {
@@ -691,7 +737,8 @@ export default class Daemons extends View {
         .child(div().text_color(t.blocked).frames(["[°□°]", "[⊙▂⊙]", "[>□<]", "[°□°]", "[⊙_⊙]"], 170))
         .child(div().text_size(Math.round(f * 0.7)).text_color(t.blocked).frames(["!!", "! ", "!!", " !"], 150)),
     }[st];
-    let el = v_flex().id(`d-group-${st}`).relative().w(Math.max(L.spriteW, L.slot - 6)).items_center().gap(2).cursor_pointer()
+    const gw = Math.max(48, L.fitSlot - 12);               // never wider than its slot (no reaching into a neighbour)
+    let el = v_flex().id(`d-group-${st}`).relative().w(gw).max_w(gw).overflow_hidden().items_center().gap(2).cursor_pointer()
       .on_click(() => run("agent.focus", { terminal: group[0].address }));
     if (st === "blocked") el = el.loop("left", { from: -3 * L.zoom, to: 3 * L.zoom, period: 130, easing: "linear" })   // shaking
       .loop("top", { from: -6, to: 0, period: 430, easing: "ease-out" });
@@ -773,13 +820,14 @@ export default class Daemons extends View {
     const inVisit = new Map();                            // address -> visit it is part of (until the caller is home)
     for (const a of list) {
       const v = this.visitOf(a.address, now);
-      if (v && now < v.until + WALK_MS) { inVisit.set(v.m.from, v); inVisit.set(v.m.to, v); }
+      if (v?.active) { inVisit.set(v.m.from, v); inVisit.set(v.m.to, v); }   // the way back is the planner's
     }
     // Too narrow → gather by status, one status at a time until it fits: idle (campfire), working (LAN
     // party), done (tent), and last those that need you.
     let shown = list;
     const groups = [];                                    // [{ st, members }]
     const extra = 0;   // visits never change which groups exist (that would reshuffle the field mid-walk)
+    // (no freezing here: the planner only takes a new layout when its current step is over)
     for (const st of ["idle", "working", "done", "blocked"]) {
       if (usable / (shown.length + groups.length + extra) >= MIN_SLOT) break;
       const members = shown.filter((a) => a.status === st);
@@ -853,9 +901,13 @@ export default class Daemons extends View {
     }
     const slots = Math.max(1, items.length);
     const slot = usable / slots, scale = Math.min(1, Math.max(0.6, slot / MIN_SLOT));
-    const face = Math.round(18 * scale), spriteW = Math.min(SPRITE_W, Math.max(56, slot - 8));
+    // sprites are sized for the narrowest slot of the last few seconds: while the planner still shows the
+    // old (denser) positions, a sprite sized for the new (wider) slots would reach into its neighbour
+    this.slotHist = (this.slotHist || []).filter((h) => now - h.t < 4000); this.slotHist.push({ t: now, slot });
+    const fitSlot = Math.min(...this.slotHist.map((h) => h.slot));
+    const face = Math.round(18 * Math.min(scale, Math.min(1, Math.max(0.6, fitSlot / MIN_SLOT)))), spriteW = Math.min(SPRITE_W, Math.max(56, fitSlot - 8));
     this.lay = {
-      slot, slots, spriteW, face, boxW: face * 0.62 * 5 + 18,
+      slot, slots, spriteW, face, boxW: face * 0.62 * 5 + 18, fitSlot,
       slotOf: posOf,
       spotOf: (addr) => (spots.has(addr) ? items.indexOf(spots.get(addr)) : -1),
       meetOf: (addr) => meet.get(addr),
@@ -864,45 +916,63 @@ export default class Daemons extends View {
       talking: items.some((x) => x.kind === "spot" || x.kind === "ghost"),
       grouped,
     };
-    const nextGroupX = new Map();
-    for (const it of items) if (it.kind === "group") for (const m of it.g.members) nextGroupX.set(m.address, this.lay.xOf(items.indexOf(it)));
-    const place = (p, id, child) => this.placed(id, this.lay.xOf(p), SHIFT_MS).child(child);
-    // a gathered partner stays in its group while the field makes room, then steps out (and is "away")
-    const out = (v) => now >= start(v.m) + DEPART_MS;
-    const away = new Set(visitsNow.filter(out).flatMap((v) => [v.m.from, v.m.to]).filter((x) => grouped.has(x)));
+    // ---- the desired layout, handed to the planner (stage.js); only the committed stage is drawn ----
+    const xOf = this.lay.xOf, gid = (addr) => { const g = groups.find((x) => x.members.some((m) => m.address === addr)); return g ? `g:${g.st}` : null; };
+    const meetXOf = (addr, to) => {
+      const tp = posOf(to), mt = meet.get(addr), sp = spots.get(addr);
+      if (tp < 0 || !sp) return null;
+      const target = items.indexOf(sp);
+      return xOf(tp) + (mt ? mt.dir * mt.dist : Math.sign(target - tp)) * Math.min(slot, spriteW + 12);
+    };
+    const metaOf = (addr, v) => v && v.meeting && v.m.from === addr ? { meeting: true, stack: meet.get(addr)?.stack ?? v.k ?? 0, host: v.m.to } : null;
+    const desired = [];
+    items.forEach((it, p) => {
+      if (it.kind === "spot") return;
+      if (it.kind === "group") { desired.push({ id: `g:${it.g.st}`, x: xOf(p), item: it }); return; }
+      if (it.kind === "ghost") { desired.push({ id: `h:${it.v.m.from}`, x: xOf(p), item: it }); return; }
+      if (it.kind === "out") { desired.push({ id: `a:${it.a.address}`, x: xOf(p), item: { kind: "agent", a: it.a }, travel: true, originId: gid(it.a.address) }); return; }
+      const v = inVisit.get(it.a.address), mx = v && v.m.from === it.a.address ? meetXOf(it.a.address, v.m.to) : null;
+      desired.push({ id: `a:${it.a.address}`, x: mx ?? xOf(p), item: it, travel: mx != null, meta: metaOf(it.a.address, v) });
+    });
+    for (const v of visitsNow) {                           // callers out of a group
+      if (!grouped.has(v.m.from) || desired.some((d) => d.id === `a:${v.m.from}`)) continue;
+      const a = list.find((x) => x.address === v.m.from), mx = a && meetXOf(v.m.from, v.m.to);
+      if (mx != null) desired.push({ id: `a:${v.m.from}`, x: mx, item: { kind: "agent", a }, travel: true, originId: gid(v.m.from), meta: metaOf(v.m.from, v) });
+    }
+    desired.sort((p, q) => p.x - q.x);
+    const groupXNow = (addr) => { const k = items.findIndex((x) => x.kind === "group" && x.g.members.some((m) => m.address === addr)); return k >= 0 ? xOf(k) : null; };
+    this.stage = this.stage || newStage();
+    const cfg = { ...CFG, SPEED: Math.max(0.42, usable / 3800) };   // px/ms, so wide screens aren't slow
+    plan(this.stage, desired, {
+      now, slot, switches: this.switches(),
+      destOf: (id) => id.startsWith("a:") ? groupXNow(id.slice(2)) : null,
+    }, cfg);
 
+    // ---- draw the committed stage ----
+    const own = new Set([...this.stage.els.values()].filter((e) => !e.leaving && e.id.startsWith("a:")).map((e) => e.id.slice(2)));
+    const onTrackBox = (vw) => vw.st && vw.st.up;
     const field = list.length === 0
       ? h_flex().flex_1().justify_center().items_center().text_size(12).font_family("Hack").text_color(t.dim)
           .frames([`${T.empty} ▮`, `${T.empty}  `], 600)
       : div().relative().flex_1().min_h(0)
-          .children(items.filter((it) => it.kind !== "spot").map((it) => {
-            const p = items.indexOf(it);
-            if (it.kind === "agent") return this.daemon(t, it.a, now, p, shown);
-            if (it.kind === "group") {
-              const here = it.g.members.filter((m) => !away.has(m.address));
-              return here.length ? place(p, `p-group-${it.g.st}`, this.statusGroup(t, it.g.st, here)) : null;
+          .children([...this.stage.els.values()].map((e) => {
+            const vw = view(this.stage, e, now);
+            if (vw.hidden) return null;
+            if (e.leaving && vw.tr && now >= vw.tr.tArr) return null;   // landed in its group: merged, gone
+            if (e.id.startsWith("a:")) {
+              const a = list.find((x) => x.address === e.id.slice(2));
+              return a ? this.daemon(t, a, now, e, vw) : null;
             }
-            if (it.kind === "out" && !out(it.v)) return null;   // still in its group while the others move
-            if (it.kind === "out") {                     // visited one, out of its group until the caller is home
-              const gx = this.lay.xOf(groupIdx(it.a.address));
-              if (now >= it.v.until) this.kick = true;
-              // the group it returns to is the one of its status now (it may have started working meanwhile)
-              // by the clock: rise out of the group in place, step out in front of it, and back in at the end
-              const te = start(it.v.m) + DEPART_MS, rise = now < te + RISE_MS;
-              const lift = now < te + RISE_MS + SHIFT_MS || now >= it.v.until;
-              if (lift) this.kick = true;
-              return this.daemon(t, it.a, now, p, shown, rise ? gx : now < it.v.until ? this.lay.xOf(p) : gx, lift, rise);
+            const box = this.placed(`p-${e.id}`, vw.x, vw.st ? vw.st.glide : (this.stage?.shift ?? CFG.SHIFT_MS), null, false, vw.st?.linear ? "linear" : "ease-in-out");
+            const lift = (c) => div().relative().transition("top", { duration: CFG.RISE_UP_MS, easing: "ease-out" }).top(onTrackBox(vw) ? -LANE_UP : 0).child(c);
+            if (e.id.startsWith("g:")) {
+              const g = e.item.g, here = g.members.filter((m) => !own.has(m.address));
+              return here.length ? box.child(lift(this.statusGroup(t, g.st, here))) : null;
             }
-            return place(p, `p-ghost-${it.v.m.from}`, this.ghost(t, it.v, now, 0));
-          }).filter(Boolean))
-          // callers from a group: walk from the group to their spot and back into the group
-          .children(visitsNow.filter((v) => grouped.has(v.m.from) && out(v)).map((v) => {
-            const a = list.find((x) => x.address === v.m.from); if (!a) return null;
-            if (now >= v.until) this.kick = true;
-            return this.daemon(t, a, now, groupIdx(a.address), shown);
+            return box.child(lift(this.ghost(t, e.item.v, now, 0)));
           }).filter(Boolean));
 
-    this.seenX = this.nextSeenX; this.groupX = nextGroupX;
+    this.seenX = this.nextSeenX;
     return v_flex().id("root").size_full().overflow_hidden().bg("#040a08b8")
       .border_b(1).border_color("#7ddcb466")
       .on_size_change((size, cx) => { if (size.width !== this.width) { this.width = size.width; cx.notify(); } })

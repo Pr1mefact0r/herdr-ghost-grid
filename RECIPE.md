@@ -115,6 +115,32 @@ Daemon faces (native `.frames`, motion with native `.loop`/`.transition`, no tim
 - Programs run: `hc`, `sh`, `stat`, `tail`, `cut`, `hostname` (for its own name and IPs). No network
   access of its own beyond Herdr's `exec {on}`.
 
+## The planner (`mods/daemons/stage.js`)
+
+Positions are never computed from live state while drawing. `main.js` builds a *desired* layout (ordered
+elements with x: daemons, groups, ghosts, visitors at their meeting points) and hands it to `plan()`;
+only the *committed* stage is drawn. `plan()` does one step at a time and nothing else until it is over:
+
+- **ground**: everybody who keeps their order slides, all with one duration (order-preserving slides never
+  cross); the duration grows with the longest distance (≤ 0.3 px/ms). A bystander that must change its
+  place in the order fades out and reappears at its new place — it never slides through others.
+- **track**: only travellers (to a visit/meeting and back, into/out of a group for one) rise at once,
+  wait up there until room is made, travel at one constant speed (scaled with field width, nobody
+  overtakes) and come down. Order inside a step: those going home rise first (one after another), the
+  field then closes the gap on the ground, then everybody sets off. Anybody who meets another up on the
+  track going the other way, or passing over one that still waits up there, passes it as a data
+  packet; the same direction never overtakes (the later one just sets off later). Travellers wear their
+  own name on top (there are no partner tags: you see whom they go to); it goes shortly before landing.
+  A meeting stack going home leaves one by one, each on its own lane (by stack place), so nobody passes. Several leaving from one place go farthest first, 0.4 s apart. Head-on trips
+  are timed to meet at a switch (1–3 by width); around it both travel as data packets `··◆`.
+- Committed meta (e.g. a meeting member's stack place) travels with the commit, so a member stays small in
+  the stack until the planner moves it. The supervisor's `⌂ N tasks` appears only once every member's
+  trip has landed. A trip's full duration is attached from the moment it rises (GPUI animates a change
+  with the transition attached before it).
+- `stage.js` has no Herdr/GPUI imports: a node fuzz test drives it in 80 ms ticks (5–16 agents,
+  1280–3440 px, random visits and status changes) and asserts no overlap and no jump on the ground and no
+  two daemons closer than a packet's gap on the track unless both are packets.
+
 ## Watch out
 
 - Addresses differ per screen: `t3` read on machine `vps` is `vps/t3`; the other side may name this
@@ -135,6 +161,8 @@ Daemon faces (native `.frames`, motion with native `.loop`/`.transition`, no tim
   until the caller has landed, otherwise the field reflows under a walking daemon.
 - Speech bubbles must float (`absolute`) above the daemon; a wider column would shift every slot.
 - The context window is assumed 1M tokens (`CONTEXT_WINDOW`).
+- Transparency looks very different per monitor (size, resolution, panel, gamma); the defaults are tuned
+  for a laptop. Your agent can adjust `terminal_opacity`, `colors` and the node backgrounds in the layout.
 - UI language: `LANG` at the top of `mods/daemons/main.js`, `"en"` (default) or `"de"`; all words live in `TEXT`.
 - `install.sh` copies the files, never overwrites differing ones without `--force`, adds the
   `ctrl-shift-d` key and sets `theme: ghost-grid` in settings.
