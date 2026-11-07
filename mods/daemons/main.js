@@ -374,7 +374,7 @@ export default class Daemons extends View {
         if (to.length >= 2) {
           for (const m of cl) m.meeting = true;
           const members = to.map((addr) => ({ addr, m: cl.find((m) => m.to === addr) }));
-          const end = Math.max(...members.map((x) => start(x.m) + DEPART_MS + RISE_MS + WALK_MS)) + MEET_HOLD_MS + 1500;
+          const end = Math.max(...members.map((x) => start(x.m))) + (members.length - 1) * 700 + DEPART_MS + RISE_MS + WALK_MS + MEET_HOLD_MS + 1500;
           this.meetings.push({ host: from, members, s0: start(cl[0]), end, text: cl[0].text });
         }
         cl = [];
@@ -393,13 +393,18 @@ export default class Daemons extends View {
     for (const M of live) {
       M.collapsed = crowd;
       if (now < M.end + (M.members.length - 1) * 600) this.meetHost.set(M.host, M);
-      M.members.sort((p, q) => start(p.m) - start(q.m));
-      M.arrive = M.members.map((x) => start(x.m) + DEPART_MS + RISE_MS + WALK_MS);
+      // nearest first: it takes the bottom of the stack and arrives first; the farthest sets off last,
+      // sits on top and is the first to leave — so nobody runs into anybody, coming or going
+      const idx = (addr) => agents().findIndex((a) => a.address === addr), hi = idx(M.host);
+      M.members.sort((p, q) => Math.abs(idx(p.addr) - hi) - Math.abs(idx(q.addr) - hi));
+      const base = Math.max(...M.members.map((x) => start(x.m)));
+      M.members.forEach((x, k) => { x.go = base + k * 700; });   // walk start minus DEPART_MS
+      M.arrive = M.members.map((x) => x.go + DEPART_MS + RISE_MS + WALK_MS);
       for (const [k, x] of M.members.entries()) {
         if (crowd) { if (now < M.end) this.meetMember.set(x.addr, M); continue; }
         // they leave one after another, top of the stack first, so they never start in a heap
         const until = M.end + (M.members.length - 1 - k) * 600;
-        this.meetVisits.set(x.addr, { m: { from: x.addr, to: M.host, at: x.m.at, seen: x.m.seen, text: "" }, reply: null,
+        this.meetVisits.set(x.addr, { m: { from: x.addr, to: M.host, at: x.go, seen: 0, text: "" }, reply: null,
           active: now < until, until, meeting: M, k });
       }
     }
@@ -795,8 +800,9 @@ export default class Daemons extends View {
     visitsNow.sort((x, y) => start(x.m) - start(y.m));
     const byTarget = new Map();
     for (const v of visitsNow) { if (!byTarget.has(v.m.to)) byTarget.set(v.m.to, []); byTarget.get(v.m.to).push(v); }
+    const settled = (v) => now >= start(v.m) + DEPART_MS - SHIFT_MS;   // room only once it is clear where they meet
     for (const [to, vs] of byTarget) {
-      if (!grouped.has(to)) continue;
+      if (!grouped.has(to) || !vs.some(settled)) continue;
       const a = list.find((x) => x.address === to); if (!a) continue;
       const key = `${to}@${vs[0].m.at}`;
       if (!this.outOrigin.has(key)) this.outOrigin.set(key, a.status);
@@ -809,6 +815,7 @@ export default class Daemons extends View {
     const spots = new Map(), meet = new Map(), level = new Map(), rank = new Map();
     const meetSlot = new Map();   // supervisor -> its one stack slot
     for (const [n, v] of visitsNow.entries()) {
+      if (!settled(v)) continue;
       const caller = v.m.from, tp = posOf(v.m.to), vp = posOf(caller);
       if (v.meeting) {
         if (tp < 0 || vp < 0) continue;

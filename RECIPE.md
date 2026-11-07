@@ -76,7 +76,9 @@ Daemon faces (native `.frames`, motion with native `.loop`/`.transition`, no tim
   A message counts as an answer only if the other side has an open question (chronological pairing).
 - **Meetings** (one sender to 2+ others within 15 s): the others come to the sender (a "supervisor", it
   stays put), shrink to 60 % and stack vertically in one slot in front of it, each on its own walking lane
-  (higher per stack place) so they never cross. Once all are there the supervisor's bubble shows
+  (higher per stack place) so they never cross. The nearest sets off first and takes the bottom; the
+  farthest comes last, sits on top and is the first to leave (0.7 s apart). Room is only made once it is
+  clear where they meet (shortly before setting off), so the field shifts once, not twice. Once all are there the supervisor's bubble shows
   `⌂ N tasks · <first task>`, then the top of the stack answers `aye aye, captain! ×N`; after ~6 s they
   leave one by one (top first, 0.6 s apart). No hearts — a later answer from one of them is a normal visit
   to the supervisor, thanked with an automatic `✓ thanks`. A caller sets off 2.5 s after sending, so a
