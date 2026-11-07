@@ -118,7 +118,7 @@ export default class Daemons extends View {
     for (const m of all) {
       if (!m.at) continue;
       const s0 = start(m);
-      for (const at of [s0, s0 + SHIFT_MS + 20, s0 + SHIFT_MS + WALK_MS + 20, s0 + AFTER_REPLY_MS + WALK_MS + 40, s0 + ANSWER_MS, s0 + AFTER_REPLY_MS, s0 + AFTER_REPLY_MS + WALK_MS, s0 + VISIT_MS]) {
+      for (const at of [s0, s0 + SHIFT_MS + 20, s0 + SHIFT_MS + WALK_MS + 20, s0 + SHIFT_MS + WALK_MS + 320, s0 + SHIFT_MS + WALK_MS + 20, s0 + AFTER_REPLY_MS + WALK_MS + 40, s0 + ANSWER_MS, s0 + AFTER_REPLY_MS, s0 + AFTER_REPLY_MS + WALK_MS, s0 + VISIT_MS]) {
         const d = at - now;
         if (d <= 0 || d > REFRESH_MS * 3 || this.scheduled.has(at)) continue;
         this.scheduled.add(at);
@@ -463,7 +463,12 @@ export default class Daemons extends View {
       bubble = div().px(6).rounded(4).bg(t.blocked).text_color(t.accent_foreground).text_size(11).font_weight(700)
         .child(`! ${a.app ?? "agent"}`).loop("opacity", { from: 0.55, to: 1, period: 700 });
     } else if (target >= 0 && target !== i) {
-      bubble = visit.reply ? div().h(16) : this.bubbleSay(t, visit.m.text, t.accent, this.edgeOf(now - start(visit.m) < SHIFT_MS ? i : target));   // waits quietly while the answer shows
+      // the question only once it has arrived beside its partner; on the way just a small tag
+      const arrived = now >= start(visit.m) + SHIFT_MS + WALK_MS + (L.grouped?.has(a.address) ? 300 : 0);
+      bubble = visit.reply ? div().h(16)
+        : arrived ? this.bubbleSay(t, visit.m.text, t.accent, this.edgeOf(target))
+        : div().px(6).rounded(4).border_1().border_color(t.accent).text_color(t.accent).text_size(11).font_family("Hack")
+            .child(`⇢ ${this.nameOf(visit.m.to)}`);
     } else if (this.answering(a.address, now)) {
       const r = this.answering(a.address, now);
       bubble = r.reply ? (now - start(r.reply) < ANSWER_MS ? this.bubbleSay(t, r.reply.text, t.done, this.edgeOf(i)) : div().h(16))

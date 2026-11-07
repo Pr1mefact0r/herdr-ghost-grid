@@ -62,8 +62,8 @@ Daemon faces (native `.frames`, motion with native `.loop`/`.transition`, no tim
 - **A visit** (an `hc send` from one agent to another):
   1. a slot is reserved beside the one asked, on the side the caller comes from; everyone slides aside
      (1 s) and stops drifting while anyone talks; then the caller walks there (`transition left`, 2.8 s)
-     on a lane 34 px up, over the others' heads, its name hidden, and lands; the question floats above it
-     (bubbles open inwards at the field's ends). A **gathered** caller stays in its group until the field
+     on a lane 34 px up, over the others' heads, its name hidden, and lands; on the way it only wears a small `⇢ <partner>` tag, the question
+     bubble appears once it has arrived (bubbles open inwards at the field's ends). A **gathered** caller stays in its group until the field
      has settled, then rises out of the group and walks straight from there; a gathered one being asked
      steps out in front of its group (they meet there; the meeting point stays put even if its status
      changes meanwhile);
