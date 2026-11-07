@@ -10,7 +10,7 @@ import { v_flex, h_flex, HoverCard } from "gpui-base";
 import { agents, spaces, machines, run, theme, setAgentOrder, hc, exec, settings, nextCommand } from "herdr";
 
 const SPRITE_W = 120;
-const MIN_SLOT = 130;           // below this per daemon, idle ones are grouped, then everything shrinks
+const MIN_SLOT = 130;           // below this per daemon, daemons gather by status (idle, working, done, blocked), then shrink
 const REFRESH_MS = 1500;       // cheap change check; files are re-read only when they changed
 const REMOTE_EVERY = 2;         // remote transcripts: every 2nd check
 const RESOLVE_MS = 20000;       // look up which session an agent runs this often
@@ -29,13 +29,15 @@ const TEXT = {
         noProc: "no running process", guest: "guest", noData: "no context data for this program",
         unreadable: "can't read", reading: "reading session…", context: "context", usage: "usage",
         model: "model", lastAnswer: "last answer", sent: "hc sent", received: "hc received",
-        quiet: "· no hc traffic in the last 30 min", empty: "no daemons online — start an agent", q: ["“", "”"] },
+        quiet: "· no hc traffic in the last 30 min", empty: "no daemons online — start an agent", q: ["“", "”"],
+        needYou: "need you" },
   de: { working: "läuft", blocked: "braucht dich", done: "fertig", idle: "wartet", ago: (n, u) => `vor ${n}${u === "s" ? "s" : " " + u}`,
         demoQ: "Demo: kannst du kurz die Tests laufen lassen?", demoA: "Klar, alle 42 sind grün.",
         noProc: "kein laufender prozess", guest: "gast", noData: "keine Kontextdaten für dieses Programm",
         unreadable: "nicht lesbar", reading: "lese session…", context: "kontext", usage: "auslastung",
         model: "modell", lastAnswer: "letzte antwort", sent: "hc gesendet", received: "hc empfangen",
-        quiet: "· kein hc-verkehr in den letzten 30 min", empty: "keine daemons online — starte einen agent", q: ["„", "“"] },
+        quiet: "· kein hc-verkehr in den letzten 30 min", empty: "keine daemons online — starte einen agent", q: ["„", "“"],
+        needYou: "brauchen dich" },
 };
 const T = TEXT[LANG] || TEXT.en;
 
@@ -49,8 +51,8 @@ const VISIT_MS = 60 * 1000;      // a caller waits at most this long beside the 
 const GIVE_UP_MS = 8 * 1000;     // …or this long once the one asked is idle/done again without answering
 const HOP_MS = 480;             // one hop of the thank-you
 const HOPS = 3;
-const WALK_MS = 2200;
-const SHIFT_MS = 900;            // others sliding aside to make room
+const WALK_MS = 2800;
+const SHIFT_MS = 1000;           // others sliding aside to make room
 const LANE_UP = 34;             // a walking caller goes over the others' heads, this high
 const ANSWER_MS = 6 * 1000;    // the answer stays readable this long, then both say thanks
 const AFTER_REPLY_MS = ANSWER_MS + HOP_MS * HOPS;   // three hops in step, retro-RPG style, then the caller walks home
@@ -96,6 +98,7 @@ export default class Daemons extends View {
     cx.timer.every(250, (cx) => {
       const sig = agents().map((a) => `${a.address}:${a.status}:${a.seq}`).join("|");
       if (sig !== this.lastSig) { this.lastSig = sig; this.refresh(cx); }
+      if (this.kick) { this.kick = false; cx.notify(); }   // new elements start moving from where they came
     });
     this.refresh(cx);
     cx.spawn(async (cx) => {
@@ -418,7 +421,7 @@ export default class Daemons extends View {
     return body;
   }
 
-  daemon(t, a, now, i, list) {
+  daemon(t, a, now, i, list, xTo, lift = false) {
     const look = LOOK[a.status] ?? LOOK.idle;
     const c = this.color(t, a.status);
     const h = hash(a.address);
@@ -434,14 +437,15 @@ export default class Daemons extends View {
     const spotP = visit ? L.spotOf(a.address) : -1;
     const target = visit?.active ? spotP : -1;
     // walking (there or back): over the others' heads, name hidden, then landing
-    const walking = spotP >= 0 && ((visit.active && now - start(visit.m) >= SHIFT_MS && now - start(visit.m) < SHIFT_MS + WALK_MS)
+    // (from a group: also while leaving it, so it rises out of the group instead of sliding through it)
+    const fromGroup = L.grouped?.has(a.address);
+    const walking = lift || spotP >= 0 && ((visit.active && now - start(visit.m) >= (fromGroup ? 0 : SHIFT_MS) && now - start(visit.m) < SHIFT_MS + WALK_MS)
       || (!visit.active && now < visit.until + WALK_MS));
     // room first, then walk: for SHIFT_MS after the visit starts the caller stays home while the others slide aside
-    const leaving = target >= 0 && now - start(visit.m) < SHIFT_MS;
-    const x = L.xOf(target >= 0 && !leaving ? target : i);
+    const leaving = target >= 0 && now - start(visit.m) < SHIFT_MS && !L.grouped?.has(a.address);
+    const x = xTo ?? L.xOf(target >= 0 && !leaving ? target : i);
     const home = visit && now - visit.until < WALK_MS + REFRESH_MS;
-    let pos = div().id(`p-${a.address}`).absolute().bottom(8).left(x)
-      .transition("left", { duration: (target >= 0 && !leaving) || home ? WALK_MS : SHIFT_MS, easing: "ease-in-out" });
+    let pos = this.placed(`p-${a.address}`, x, (target >= 0 && !leaving) || home ? WALK_MS : SHIFT_MS, this.groupX?.get(a.address));
     // drifting only while nobody is talking (everyone watches a conversation) and never into a neighbour
     if (target < 0 && a.status === "working" && !home && !L.talking && roam >= 4)
       pos = pos.loop("left", { from: (x - roam) * L.zoom, to: (x + roam) * L.zoom, period: 5200 + (h % 2600), easing: "ease-in-out" });   // loop() values aren't zoomed, left() is
@@ -498,29 +502,73 @@ export default class Daemons extends View {
       .trigger(el).content(this.card(t, a)));
   }
 
-  // All idle daemons in one, when the field is too narrow for each to have its own slot.
-  idleGroup(t, group, now) {
-    const L = this.lay;
-    const names = group.map((a) => a.space_name);
-    let el = v_flex().id("d-idle-group").relative().w(L.spriteW).items_center().gap(2).cursor_pointer()
-      .on_click(() => run("agent.focus", { terminal: group[0].address }))
-      .loop("opacity", { from: 0.5, to: 0.85, period: 3600 })
-      .child(div().h(16).text_size(11).text_color(t.idle).frames(["▮", " "], 530))
-      .child(div().px(8).py(2).rounded(6).border_1().border_color(t.idle).bg("#050d0ab0")
-        .text_size(L.face).font_family("Hack").font_weight(700).text_color(t.idle).whitespace_nowrap()
-        .frames([`[·_·]×${group.length}`, `[·_·]×${group.length}`, `[-_-]×${group.length}`], 900))
+  // A positioned wrapper. A freshly mounted element would animate its `left` in from 0 (the field's left
+  // edge), so the first frame of a new one stands still where it comes from — the group it just left, or
+  // its own slot — and only the next frame moves it, with the transition.
+  placed(id, x, ms, from) {
+    const seen = this.seenX?.has(id);
+    const at = seen ? x : (from ?? x);
+    this.nextSeenX.set(id, at);
+    let el = div().id(id).absolute().bottom(8).left(at);
+    if (seen) el = el.transition("left", { duration: ms, easing: "ease-in-out" });
+    else if (at !== x) this.kick = true;          // move on next frame
+    return el;
+  }
+
+  // Daemons of one status gathered in one slot, when the field is too narrow for each to have its own:
+  // idle ones camp at a fire, working ones share a LAN party, done ones sleep in a tent, and those that
+  // need you crowd together waving (grouped last, so they stay visible on their own the longest).
+  statusGroup(t, st, group) {
+    const L = this.lay, n = group.length;
+    const chars = { idle: 15, working: 13, done: 7, blocked: 12 }[st];
+    const f = Math.max(9, Math.min(L.face, Math.floor((L.slot - 26) / (chars * 0.62))));   // the scene fits its slot
+    const col = this.color(t, st);
+    const fire = "#ffb36b", ember = "#ff7a45";
+    const scene = {
+      idle: h_flex().gap(4).items_end()
+        .child(div().text_color(t.idle).frames(["[·_·]", "[·_·]", "[-_-]"], 900))
+        .child(v_flex().items_center()
+          .child(div().text_size(Math.round(f * 0.8)).text_color(fire).frames(["ʌ", "ʎ", "^", "ʌ"], 180).loop("opacity", { from: 0.6, to: 1, period: 420 }))
+          .child(div().text_size(Math.round(f * 0.6)).text_color(ember).child("≈")))
+        .child(div().text_color(t.idle).frames(["[-_-]", "[·_·]", "[·_·]"], 1100)),
+      working: h_flex().gap(2).items_center()
+        .child(div().text_color(t.working).child("[>_"))
+        .child(div().w(Math.round(f * 1.6)).text_size(Math.round(f * 0.7)).text_color(t.accent).frames(["⇄  ", " ⇄ ", "  ⇄", " ⇄ "], 160))
+        .child(div().text_color(t.working).child("_<]")),
+      done: h_flex().gap(4).items_end()
+        .child(div().text_color(t.done).child("/\\"))
+        .child(div().text_size(Math.round(f * 0.6)).text_color(t.done).frames(["z", "zZ", "zZz", " "], 600)),
+      // panic: faces flipping, an alarm light, the whole group shaking
+      blocked: h_flex().gap(4).items_center()
+        .child(div().text_size(Math.round(f * 0.7)).text_color(t.blocked).frames(["◉", " ", "◉", "○"], 200))
+        .child(div().text_color(t.blocked).frames(["[°□°]", "[⊙▂⊙]", "[>□<]", "[°□°]", "[⊙_⊙]"], 170))
+        .child(div().text_size(Math.round(f * 0.7)).text_color(t.blocked).frames(["!!", "! ", "!!", " !"], 150)),
+    }[st];
+    let el = v_flex().id(`d-group-${st}`).relative().w(Math.max(L.spriteW, L.slot - 6)).items_center().gap(2).cursor_pointer()
+      .on_click(() => run("agent.focus", { terminal: group[0].address }));
+    if (st === "blocked") el = el.loop("left", { from: -3 * L.zoom, to: 3 * L.zoom, period: 130, easing: "linear" })   // shaking
+      .loop("top", { from: -6, to: 0, period: 430, easing: "ease-out" });
+    el = el
+      .child(st === "blocked"
+        ? div().px(6).rounded(4).bg(t.blocked).text_color(t.accent_foreground).text_size(11).font_weight(700)
+            .child(`! ×${n}`).loop("opacity", { from: 0.55, to: 1, period: 700 })
+        : div().h(16))
+      .child(h_flex().px(8).py(2).gap(4).items_center().rounded(6).border_1().border_color(col).bg("#050d0ab0")
+        .text_size(f).font_family("Hack").font_weight(700).whitespace_nowrap()
+        .child(scene)
+        .child(div().text_size(Math.round(f * 0.6)).text_color(col).child(`×${n}`)))
       .child(div().h(2).w(64))
       .child(v_flex().items_center()
-        .child(div().text_size(11).text_color(t.foreground).child(`${group.length} ${T.idle}`))
-        .child(div().text_size(10).text_color(t.dim).truncate().max_w(L.spriteW).child(names.join(", "))));
-    const card = v_flex().w(220).p(12).gap(4).rounded(8).border_1().border_color(t.idle).bg(t.popover)
+        .child(div().text_size(11).text_color(t.foreground).child(`${n} ${st === "blocked" ? T.needYou : T[st]}`))
+        .child(div().text_size(10).text_color(t.dim).truncate().max_w(L.spriteW).child(group.map((a) => a.space_name).join(", "))));
+    const card = v_flex().w(220).p(12).gap(4).rounded(8).border_1().border_color(col).bg(t.popover)
       .text_size(12).font_family("Hack").text_color(t.foreground)
-      .child(div().text_color(t.muted).child(`${group.length} ${T.idle}`))
+      .child(div().text_color(t.muted).child(`${n} ${st === "blocked" ? T.needYou : T[st]}`))
       .child(div().h(1).bg(t.border))
       .children(group.map((a) => h_flex().id(`g-${a.address}`).justify_between().gap(12).cursor_pointer()
         .hover((x) => x.bg(t.hover)).on_click(() => run("agent.focus", { terminal: a.address }))
         .child(div().child(a.space_name)).child(div().text_color(t.dim).child(a.tab_name))));
-    return HoverCard.new("hc-idle-group").open_delay(250).close_delay(150).anchor("top_center").trigger(el).content(card);
+    return HoverCard.new(`hc-group-${st}`).open_delay(250).close_delay(150).anchor("top_center").trigger(el).content(card);
   }
 
   ticker(t, now) {
@@ -543,6 +591,7 @@ export default class Daemons extends View {
     const t = theme();
     const list = agents();
     const now = Date.now();
+    this.nextSeenX = new Map();
     const demo = this.demo.filter((m) => m.at <= now);
     this.msgs = [...(this.real || []), ...demo].map((m) => ({ ...m })).sort((x, y) => x.at - y.at);
     this.pairUp(this.msgs);
@@ -555,42 +604,72 @@ export default class Daemons extends View {
       .child(h_flex().gap(8)
         .child(div().text_color(t.accent).frames(["▌", " "], 600))
         .child(div().text_color(t.muted).child(`THE GRID · ${list.length} daemon${list.length === 1 ? "" : "s"}`)))
-      .child(h_flex().gap(14)
-        .child(div().text_color(t.working).child(`▸ ${count("working")} ${T.working}`))
-        .child(div().text_color(t.blocked).child(`! ${count("blocked")} ${T.blocked}`))
-        .child(div().text_color(t.done).child(`✓ ${count("done")} ${T.done}`))
-        .child(div().text_color(t.idle).child(`· ${count("idle")} ${T.idle}`)));
+      .child((this.width || 1200) / (Number(settings().zoom) || 1) < 700   // narrow field: counts only
+        ? h_flex().gap(8)
+          .child(div().text_color(t.working).child(`▸${count("working")}`))
+          .child(div().text_color(t.blocked).child(`!${count("blocked")}`))
+          .child(div().text_color(t.done).child(`✓${count("done")}`))
+          .child(div().text_color(t.idle).child(`·${count("idle")}`))
+        : h_flex().gap(14)
+          .child(div().text_color(t.working).child(`▸ ${count("working")} ${T.working}`))
+          .child(div().text_color(t.blocked).child(`! ${count("blocked")} ${T.blocked}`))
+          .child(div().text_color(t.done).child(`✓ ${count("done")} ${T.done}`))
+          .child(div().text_color(t.idle).child(`· ${count("idle")} ${T.idle}`)));
 
     // Layout: one slot per daemon; too narrow → idle ones share one slot (not those in a visit); still too
     // narrow → everything shrinks. on_size_change reports zoomed pixels, slots are in unzoomed ones.
     const zoom = Number(settings().zoom) || 1;
     const usable = Math.max(200, (this.width || 1200) / zoom - 40);
     const busy = new Set();
-    // both sides of a visit stay out of the idle group until the caller has landed at home again
-    for (const a of list) { const v = this.visitOf(a.address, now); if (v && now < v.until + WALK_MS) { busy.add(v.m.from); busy.add(v.m.to); } }
-    let shown = list, group = [];
-    if (usable / list.length < MIN_SLOT) {
-      const idle = list.filter((a) => a.status === "idle" && !busy.has(a.address));
-      if (idle.length >= 2) { group = idle; shown = list.filter((a) => !idle.includes(a)); }
-    }
-    // A visit gets its own spot: a reserved slot beside the one asked, on the side the caller comes from
-    // (the others make room), so caller and neighbours never overlap however narrow the field is.
-    // A guest from another machine (no daemon here) gets such a spot too.
-    const items = shown.map((a) => ({ kind: "agent", a }));
-    if (group.length) items.push({ kind: "group" });
-    const posOf = (addr) => {
-      const k = items.findIndex((x) => x.kind === "agent" && x.a.address === addr);
-      return k >= 0 ? k : group.some((x) => x.address === addr) ? items.findIndex((x) => x.kind === "group") : -1;
-    };
-    const spots = new Map();
-    for (const a of shown) {
+    // Partners of a visit stay members of their group. One that is gathered steps out of the group for the
+    // visit — straight from the group's place to where it has to be — and goes straight back into it.
+    const inVisit = new Map();                            // address -> visit it is part of (until the caller is home)
+    for (const a of list) {
       const v = this.visitOf(a.address, now);
-      if (!v || now >= v.until + WALK_MS) continue;   // the gap stays until the caller is home again
-      const tp = posOf(v.m.to), vp = posOf(a.address);
-      if (tp < 0 || tp === vp) continue;
-      const sp = { kind: "spot", visitor: a.address };
+      if (v && now < v.until + WALK_MS) { inVisit.set(v.m.from, v); inVisit.set(v.m.to, v); }
+    }
+    // Too narrow → gather by status, one status at a time until it fits: idle (campfire), working (LAN
+    // party), done (tent), and last those that need you.
+    let shown = list;
+    const groups = [];                                    // [{ st, members }]
+    const extra = 0;   // visits never change which groups exist (that would reshuffle the field mid-walk)
+    for (const st of ["idle", "working", "done", "blocked"]) {
+      if (usable / (shown.length + groups.length + extra) >= MIN_SLOT) break;
+      const members = shown.filter((a) => a.status === st);
+      if (members.length < 2) continue;
+      groups.push({ st, members });
+      shown = shown.filter((a) => !members.includes(a));
+    }
+    const grouped = new Set(groups.flatMap((g) => g.members.map((m) => m.address)));
+    // Slots: every shown daemon and every group; a gathered agent being visited gets an "out" slot beside
+    // its group; a caller gets a reserved spot beside the one it asks (on its side), so nobody overlaps.
+    const items = shown.map((a) => ({ kind: "agent", a }));
+    for (const g of ["blocked", "working", "done", "idle"].map((st) => groups.find((x) => x.st === st)).filter(Boolean))
+      items.push({ kind: "group", g });
+    const groupIdx = (addr) => items.findIndex((x) => x.kind === "group" && x.g.members.some((m) => m.address === addr));
+    const posOf = (addr) => {
+      const k = items.findIndex((x) => (x.kind === "agent" || x.kind === "out") && x.a.address === addr);
+      return k >= 0 ? k : groupIdx(addr);
+    };
+    const visitsNow = [...new Set(inVisit.values())];
+    // the meeting point stays in front of the group the asked one was in when the visit began, even if
+    // its status (and so its group) changes meanwhile; only the way back goes to its group of now
+    this.outOrigin = this.outOrigin || new Map();
+    for (const v of visitsNow) {
+      if (!grouped.has(v.m.to)) continue;
+      const a = list.find((x) => x.address === v.m.to); if (!a) continue;
+      const key = `${v.m.from}>${v.m.to}@${v.m.at}`;
+      if (!this.outOrigin.has(key)) this.outOrigin.set(key, a.status);
+      const og = items.findIndex((x) => x.kind === "group" && x.g.st === this.outOrigin.get(key));
+      items.splice(og >= 0 ? og : groupIdx(v.m.to), 0, { kind: "out", a, v });   // steps out, left of that group
+    }
+    const spots = new Map();
+    for (const v of visitsNow) {
+      const caller = v.m.from, tp = posOf(v.m.to), vp = posOf(caller);
+      if (tp < 0 || vp < 0 || tp === vp && !grouped.has(caller)) continue;
+      const sp = { kind: "spot", visitor: caller };
       items.splice(vp < tp ? tp : tp + 1, 0, sp);
-      spots.set(a.address, sp);
+      spots.set(caller, sp);
     }
     for (const a of shown) {
       const g = this.guestFor(a.address, now);
@@ -607,19 +686,45 @@ export default class Daemons extends View {
       spotOf: (addr) => (spots.has(addr) ? items.indexOf(spots.get(addr)) : -1),
       xOf: (p) => 20 + p * slot + (slot - spriteW) / 2, zoom,
       talking: items.some((x) => x.kind === "spot" || x.kind === "ghost"),
+      grouped,
     };
-    const place = (p, id, child) => div().id(id).absolute().bottom(8).left(this.lay.xOf(p))
-      .transition("left", { duration: SHIFT_MS, easing: "ease-in-out" }).child(child);
+    const nextGroupX = new Map();
+    for (const it of items) if (it.kind === "group") for (const m of it.g.members) nextGroupX.set(m.address, this.lay.xOf(items.indexOf(it)));
+    const place = (p, id, child) => this.placed(id, this.lay.xOf(p), SHIFT_MS).child(child);
+    // a gathered partner stays in its group while the field makes room, then steps out (and is "away")
+    const out = (v) => now >= start(v.m) + SHIFT_MS;
+    const away = new Set(visitsNow.filter(out).flatMap((v) => [v.m.from, v.m.to]).filter((x) => grouped.has(x)));
 
     const field = list.length === 0
       ? h_flex().flex_1().justify_center().items_center().text_size(12).font_family("Hack").text_color(t.dim)
           .frames([`${T.empty} ▮`, `${T.empty}  `], 600)
       : div().relative().flex_1().min_h(0)
-          .children(items.filter((it) => it.kind !== "spot").map((it) =>
-            it.kind === "agent" ? this.daemon(t, it.a, now, items.indexOf(it), shown)
-            : it.kind === "group" ? place(items.indexOf(it), "p-idle-group", this.idleGroup(t, group, now))
-            : place(items.indexOf(it), `p-ghost-${it.v.m.from}`, this.ghost(t, it.v, now, 0))));
+          .children(items.filter((it) => it.kind !== "spot").map((it) => {
+            const p = items.indexOf(it);
+            if (it.kind === "agent") return this.daemon(t, it.a, now, p, shown);
+            if (it.kind === "group") {
+              const here = it.g.members.filter((m) => !away.has(m.address));
+              return here.length ? place(p, `p-group-${it.g.st}`, this.statusGroup(t, it.g.st, here)) : null;
+            }
+            if (it.kind === "out" && !out(it.v)) return null;   // still in its group while the others move
+            if (it.kind === "out") {                     // visited one, out of its group until the caller is home
+              const gx = this.lay.xOf(groupIdx(it.a.address));
+              if (now >= it.v.until) this.kick = true;
+              // the group it returns to is the one of its status now (it may have started working meanwhile)
+              const lift = now < start(it.v.m) + SHIFT_MS + 600 || now >= it.v.until;   // rising out of / back into the group
+              if (lift) this.kick = true;
+              return this.daemon(t, it.a, now, p, shown, now < it.v.until ? this.lay.xOf(p) : gx, lift);
+            }
+            return place(p, `p-ghost-${it.v.m.from}`, this.ghost(t, it.v, now, 0));
+          }).filter(Boolean))
+          // callers from a group: walk from the group to their spot and back into the group
+          .children(visitsNow.filter((v) => grouped.has(v.m.from) && out(v)).map((v) => {
+            const a = list.find((x) => x.address === v.m.from); if (!a) return null;
+            if (now >= v.until) this.kick = true;
+            return this.daemon(t, a, now, groupIdx(a.address), shown);
+          }).filter(Boolean));
 
+    this.seenX = this.nextSeenX; this.groupX = nextGroupX;
     return v_flex().id("root").size_full().overflow_hidden().bg("#040a08b8")
       .border_b(1).border_color("#7ddcb466")
       .on_size_change((size, cx) => { if (size.width !== this.width) { this.width = size.width; cx.notify(); } })

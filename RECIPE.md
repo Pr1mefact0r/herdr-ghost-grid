@@ -27,9 +27,13 @@ Left to right, top to bottom (the `main` layout's structure, restyled):
   - ticker row (18 px): the last three `hc` messages of the last 30 min, `from ⇢ to HH:MM „text…“`,
     a live one (< 90 s) in accent with a moving packet `···⇢`;
   - the field: one slot per daemon, each daemon absolutely placed (`left` = slot centre) so every change
-    of place animates. When slots get narrower than 130 px, all **idle** daemons (not those in a visit)
-    collapse into one group daemon `[·_·]×N` at the right end (`N idle`, names below, hover lists them,
-    click focuses the first); if it is still narrow, every daemon shrinks (face 18→11 px). A daemon is a
+    of place animates; a newly shown element starts where it comes from (its group), never from x = 0.
+    When slots get narrower than 130 px, daemons **gather by status**, one status at a time until it fits:
+    idle → campfire `[·_·] ʌ [-_-] ×N`, working → LAN party `[>_ ⇄ _<] ×N`, done → tent `/\ zZ ×N`,
+    and last blocked → panic `◉ [°□°] !! ×N` (faces flipping, alarm light, shaking). Groups sit at the right
+    end (blocked, working, done, idle), show `N <status>` and names, hover lists them, click focuses the
+    first. Visits never change which groups exist. Still too narrow → every daemon shrinks (face 18→11 px).
+    A daemon is a
     120 px column: note line (16 px), face box (Hack Bold 18, 1 px border in the status color,
     rounded 6), a 64×2 px context meter, space name (11) and `tab · status` (10, dim).
 - **Terminals**: the active tab's panes as cards (radius 8, gap 8, border `#1d3a30`, focus 1 px accent),
@@ -57,14 +61,18 @@ Daemon faces (native `.frames`, motion with native `.loop`/`.transition`, no tim
   and the last message.
 - **A visit** (an `hc send` from one agent to another):
   1. a slot is reserved beside the one asked, on the side the caller comes from; everyone slides aside
-     (0.9 s) and stops drifting while anyone talks; then the caller walks there (`transition left`, 2.2 s)
+     (1 s) and stops drifting while anyone talks; then the caller walks there (`transition left`, 2.8 s)
      on a lane 34 px up, over the others' heads, its name hidden, and lands; the question floats above it
-     (bubbles open inwards at the field's ends);
+     (bubbles open inwards at the field's ends). A **gathered** caller stays in its group until the field
+     has settled, then rises out of the group and walks straight from there; a gathered one being asked
+     steps out in front of its group (they meet there; the meeting point stays put even if its status
+     changes meanwhile);
   2. the answer floats above the answerer in a gold bubble for 6 s;
   3. both switch to `[♥_♥]`/`[♥‿♥]` in pink `#ff7ab6` and hop 12 px three times in step (480 ms each);
-  4. the caller walks home the same way; the gap and both partners stay as they are until it has landed,
-     then the field tidies up in one animated step. No answer: it walks home once the one asked is
-     idle/done again (after 8 s), at the latest after 60 s.
+  4. the caller walks home the same way — a gathered one straight back into its group, and a gathered
+     one that was asked back into the group of its status **now** (asked while idle, working afterwards →
+     LAN party); the gap stays until the caller has landed, then the field tidies up in one step.
+     No answer: it walks home once the one asked is idle/done again (after 8 s), at the latest after 60 s.
   A message counts as an answer only if the other side has an open question (chronological pairing).
 - **Guests**: a sender with no daemon on this screen (an unconnected machine) appears as a translucent
   ghost `[◇_◇]` in its own reserved slot beside the one it asks, labelled with its machine and `tN · guest`.

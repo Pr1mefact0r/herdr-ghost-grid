@@ -12,12 +12,18 @@ on top where every coding agent is a little terminal daemon.
 - **Agents talking** – when one agent asks another via `hc send`, its daemon walks over, the question
   appears in a speech bubble, the answer above the other one, then both say thanks with heart eyes and
   three retro-RPG hops before the caller walks home. Works across connected machines too.
+- **Crowded? They gather.** When the field gets too narrow, daemons gather by status, one status at a
+  time: idle ones camp at a **campfire**, working ones share a **LAN party**, done ones sleep in a **tent**,
+  and last of all those that need you crowd together in **panic** (shaking, alarm light). A gathered daemon
+  that talks steps out of its group, walks over, and goes back — into the group of whatever it is doing now.
 - **Hover a daemon** for its context usage, model, last answer and `hc` traffic (Claude Code agents).
 - **Ghostly jade theme** over a grid of falling hex glyphs, translucent panels, Hack font.
 
 ![A visit: walk over, ask, answer, three hops, walk home](demo.webp)
 
 *Full resolution video: [`demo.mp4`](demo.mp4)*
+
+![Many agents: campfire, LAN party, panic — and a visit straight out of the groups](demo-groups.webp)
 
 ## Install
 
