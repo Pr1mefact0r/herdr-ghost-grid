@@ -135,7 +135,9 @@ only the *committed* stage is drawn. `plan()` does one step at a time and nothin
   own name on top (there are no partner tags: you see whom they go to); it goes shortly before landing.
   **Going into a group** (a meeting breaking up, reporters thanked, a supervisor gathered again): one
   after another on the same lane, ≥ 150 px apart — a meeting stack top first, everybody else the one
-  nearest its group first, so going the same way nobody can catch up. Each rises just when its turn
+  nearest its group first, so going the same way nobody can catch up. Back to a place in the field
+  instead: the one going farthest first (it flies a bit slower so it lands just after room is made — the
+  farthest is the fastest, so nobody waits; should one still wait, the gap closes only once it has left). Each rises just when its turn
   comes (no hovering), flies to where its group *is* on arrival, comes down into it and only then merges.
   The field closes the gap only `CLOSE_GAP_MS` (1 s) after the last one has left. Neighbouring speech
   bubbles alternate between two heights. Several leaving from one place otherwise go farthest first, 0.4 s apart. Head-on trips
