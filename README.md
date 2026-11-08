@@ -44,7 +44,7 @@ git clone https://github.com/Pr1mefact0r/herdr-ghost-grid.git
 ```
 
 Switch layouts with `ctrl-shift-l`. The font **Hack** is recommended (`sudo apt install fonts-hack`).
-`ctrl-shift-d` in the Ghost Grid layout plays an on-screen demo visit (nothing is sent to anyone).
+`ctrl-shift-d` in the Ghost Grid layout plays an on-screen demo meeting (nothing is sent to anyone).
 
 ## Settings
 

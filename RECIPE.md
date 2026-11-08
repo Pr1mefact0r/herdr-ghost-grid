@@ -80,14 +80,16 @@ Daemon faces (native `.frames`, motion with native `.loop`/`.transition`, no tim
   farthest comes last, sits on top and is the first to leave (0.7 s apart). Room is only made once it is
   clear where they meet (shortly before setting off), so the field shifts once, not twice. Once all are there the supervisor's bubble shows
   `⌂ N tasks · <first task>`, then the top of the stack answers `aye aye, captain! ×N`; after ~6 s they
-  leave one by one (top first, 0.6 s apart). No hearts — a later answer from one of them is a normal visit
+  leave one by one (top first, then the supervisor if it goes into a group too), all on one lane, each
+  rising only when its turn comes. No hearts — a later answer from one of them is a normal visit
   to the supervisor, thanked with an automatic `✓ thanks`. A caller sets off 2.5 s after sending, so a
   second task in that time turns it into a meeting. `daemons.demo-meeting` plays one.
 - A visit without an answer also ends ~10 s after arriving if the one asked is busy working on it.
 - **Guests**: a sender with no daemon on this screen (an unconnected machine) appears as a translucent
   ghost `[◇_◇]` in its own reserved slot beside the one it asks, labelled with its machine and `tN · guest`.
-- `ctrl-shift-d` (layout `ghost-grid`) or `herdr-app do daemons.demo` plays a made-up visit between the
-  first and last daemon; `daemons.demo-guest` one from a ghost. Nothing is sent to anyone.
+- `ctrl-shift-d` (layout `ghost-grid`) or `herdr-app do daemons.demo-meeting` plays a made-up meeting
+  (three helpers, aye aye, two reports thanked together); `daemons.demo` a single visit between the first
+  and last daemon; `daemons.demo-guest` one from a ghost. Nothing is sent to anyone.
   `daemons.demo-multi` plays four overlapping conversations (two callers to the same one) as a stress test.
 - Several callers to one: each stays on the side it comes from, one step further out per visitor already
   there (never the far side: that would push the one asked aside and they would cross on the way back); one out-slot per gathered agent however many come; bubbles of neighbouring conversations alternate
@@ -131,7 +133,12 @@ only the *committed* stage is drawn. `plan()` does one step at a time and nothin
   track going the other way, or passing over one that still waits up there, passes it as a data
   packet; the same direction never overtakes (the later one just sets off later). Travellers wear their
   own name on top (there are no partner tags: you see whom they go to); it goes shortly before landing.
-  A meeting stack going home leaves one by one, each on its own lane (by stack place), so nobody passes. Several leaving from one place go farthest first, 0.4 s apart. Head-on trips
+  **Going into a group** (a meeting breaking up, reporters thanked, a supervisor gathered again): one
+  after another on the same lane, ≥ 150 px apart — a meeting stack top first, everybody else the one
+  nearest its group first, so going the same way nobody can catch up. Each rises just when its turn
+  comes (no hovering), flies to where its group *is* on arrival, comes down into it and only then merges.
+  The field closes the gap only `CLOSE_GAP_MS` (1 s) after the last one has left. Neighbouring speech
+  bubbles alternate between two heights. Several leaving from one place otherwise go farthest first, 0.4 s apart. Head-on trips
   are timed to meet at a switch (1–3 by width); around it both travel as data packets `··◆`.
 - Committed meta (e.g. a meeting member's stack place) travels with the commit, so a member stays small in
   the stack until the planner moves it. The supervisor's `⌂ N tasks` appears only once every member's
@@ -165,7 +172,7 @@ only the *committed* stage is drawn. `plan()` does one step at a time and nothin
   for a laptop. Your agent can adjust `terminal_opacity`, `colors` and the node backgrounds in the layout.
 - UI language: `LANG` at the top of `mods/daemons/main.js`, `"en"` (default) or `"de"`; all words live in `TEXT`.
 - `install.sh` copies the files, never overwrites differing ones without `--force`, adds the
-  `ctrl-shift-d` key and sets `theme: ghost-grid` in settings.
+  `ctrl-shift-d` key (demo meeting) and sets `theme: ghost-grid` in settings.
 
 ## Done when
 

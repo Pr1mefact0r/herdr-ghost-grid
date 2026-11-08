@@ -19,7 +19,8 @@ export const CFG = {
   PKT_R: 110,       // packet radius around a meeting point
   MORPH_MS: 220,    // daemon <-> packet glitch
   HOLD_MAX: 6000,   // longest a trip waits up on the track for a switch
-  STAGGER_MS: 400,  // gap between several leaving from the same place
+  STAGGER_MS: 400,
+  CLOSE_GAP_MS: 1000, // after the last one has left, the field waits this long before closing the gap  // gap between several leaving from the same place
   PASS_GAP: 60,     // closer than this on the track = they pass as packets
   GROUND_SPEED: 0.3, // px per ms at most when making room on the ground
 };
@@ -35,6 +36,7 @@ const dir = (r) => Math.sign(r.x1 - r.x0);
 export function makeTrip(stage, key, x0, x1, tUp, switches, cfg = CFG, goAt = 0, lane = 0) {
   const dur = Math.max(400, Math.abs(x1 - x0) / cfg.SPEED);
   const tr = { key, x0, x1, tUp, tGo: Math.max(tUp + cfg.RISE_UP_MS, goAt), dur, packets: [], lane };
+  const jit = tr.tGo === tUp + cfg.RISE_UP_MS;
   // on different lanes (a meeting stack going home: each one at its own height) nobody touches anybody
   const apart = (o) => (o.lane ?? 0) !== lane;
   tr.tArr = tr.tGo + dur; tr.tDown = tr.tArr + cfg.RISE_UP_MS;
@@ -80,7 +82,8 @@ export function makeTrip(stage, key, x0, x1, tUp, switches, cfg = CFG, goAt = 0,
       if (late) break;
     }
     if (!late) break;
-    tr.tGo += late; tr.tArr += late; tr.tDown += late;   // rises as planned (off the ground), waits up there
+    if (jit) tr.tUp += late;                               // rises just in time: stays on the ground meanwhile
+    tr.tGo += late; tr.tArr += late; tr.tDown += late;   // otherwise rises as planned, waits up there
   }
   // Anybody this trip still meets up on the track (going the other way, or passing one that waits there)
   // passes it as a data packet: both are packets for the whole time they are close (plus a margin).
@@ -196,7 +199,21 @@ export function plan(stage, desired, ctx, cfg = CFG) {
   // the track, so nobody on the ground ever passes under a traveller still standing there.
   const homeGoers = common.filter((d) => movers.has(d.id) && stage.els.get(d.id).away && !d.travel).length
     + oldOrder.filter((id) => !desired.some((d) => d.id === id) && stage.els.get(id)?.away).length;
-  const slideAt = now + (homeGoers ? cfg.RISE_UP_MS + (homeGoers - 1) * cfg.STAGGER_MS * 2 + 200 : 0);
+  // a meeting breaking up: its helpers leave the stack one by one, top first, all on the same lane, each a
+  // clear gap behind the one before; only once the last one has left does the field move
+  const goneIds = oldOrder.filter((id) => !desired.some((d) => d.id === id));
+  const dist = (el) => Math.abs((desired.find((d) => d.id === el.id)?.x ?? ctx.destOf?.(el.id) ?? el.x) - el.x);
+  const crew = [...common.filter((d) => movers.has(d.id) && !d.travel).map((d) => d.id), ...goneIds]
+    .map((id) => stage.els.get(id)).filter((el) => el?.away && el.meta?.meeting)
+    .sort((a, b) => (b.meta.stack ?? 0) - (a.meta.stack ?? 0));
+  // everybody else going into a group (a captain, those who reported) leaves in the same rhythm, the one
+  // nearest its group first: going the same way, nobody can catch up with the one ahead
+  crew.push(...goneIds.map((id) => stage.els.get(id)).filter((el) => el?.away && !crew.includes(el) && ctx.destOf?.(el.id) != null)
+    .sort((a, b) => dist(a) - dist(b)));
+  const crewGap = Math.max(cfg.STAGGER_MS * 2, 150 / cfg.SPEED);
+  const crewGo = new Map(crew.map((el, k) => [el.id, now + cfg.RISE_UP_MS + k * crewGap]));
+  const slideAt = crew.length ? now + cfg.RISE_UP_MS + (crew.length - 1) * crewGap + cfg.CLOSE_GAP_MS
+    : now + (homeGoers ? cfg.RISE_UP_MS + (homeGoers - 1) * cfg.STAGGER_MS * 2 + 200 : 0);
   const goAt = slides ? slideAt + shift : now;
   let until = slides ? slideAt + shift : now;
   const tag = ++stage.seq;
@@ -211,7 +228,7 @@ export function plan(stage, desired, ctx, cfg = CFG) {
   };
   const flushTrips = () => {
     // farthest first; those leaving from the same place go one after another
-    pending.sort((p, q) => Math.abs(q.x1 - q.x0) - Math.abs(p.x1 - p.x0));
+    pending.sort((p, q) => (crewGo.get(p.id) ?? Infinity) - (crewGo.get(q.id) ?? Infinity) || Math.abs(q.x1 - q.x0) - Math.abs(p.x1 - p.x0));
     const fromHere = new Map();
     let hn = 0, lastHomeGo = -Infinity;
     for (const p of pending) {
@@ -220,6 +237,20 @@ export function plan(stage, desired, ctx, cfg = CFG) {
       // home-goers rise one after another right away (off the ground, so the field can move under them),
       // and set off once the field has settled; visitors set off once room is made
       const dur = Math.max(400, Math.abs(p.x1 - p.x0) / cfg.SPEED);
+      if (crewGo.has(p.id)) {                       // a helper leaving the meeting: rises just as its turn comes
+        const g = crewGo.get(p.id), el = stage.els.get(p.id);
+        // going into a group: land where that group *is* on arrival (before the field moves: still its old place)
+        const gidTo = el?.leaving ? ctx.destIdOf?.(p.id) : null, g1 = gidTo ? stage.els.get(gidTo) : null;
+        if (g1 && oldX.has(gidTo)) {
+          const at = (t) => { const f = Math.min(1, Math.max(0, (t - slideAt) / shift)); return oldX.get(gidTo) + (g1.x - oldX.get(gidTo)) * f; };
+          let x1 = p.x1;
+          for (let k = 0; k < 4; k++) x1 = at(g + Math.max(400, Math.abs(x1 - p.x0) / cfg.SPEED));
+          p.x1 = x1; el.x = x1;
+        }
+        const tr = makeTrip(stage, p.key, p.x0, p.x1, g - cfg.RISE_UP_MS, ctx.switches, cfg, g, 0);
+        until = Math.max(until, tr.tDown);
+        continue;
+      }
       const up = home ? now + hn++ * cfg.STAGGER_MS * 2 : (n === 0 ? now : Math.max(now, goAt + n * cfg.STAGGER_MS * 2 - cfg.RISE_UP_MS));
       // home-goers keep their stagger also when setting off (one after another, never as a bunch)
       let go = home ? Math.max(up + cfg.RISE_UP_MS, (slides ? slideAt + shift : 0) - dur) : goAt + n * cfg.STAGGER_MS * 2;

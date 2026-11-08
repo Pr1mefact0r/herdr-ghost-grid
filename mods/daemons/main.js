@@ -582,7 +582,7 @@ export default class Daemons extends View {
     el2 = el2.transition("top", { duration: CFG.RISE_UP_MS, easing: "ease-out" })
       .top(walking ? -(LANE_UP - 8 + (vw.tr?.lane ?? 0) * 18) : stacked ? -(el.meta.stack ?? 0) * STACK_H : 0);
     const form = st?.form ?? "daemon";
-    const tagOn = !!(st && vw.tr && now < vw.tr.tArr - TAG_OFF_MS);
+    const tagOn = !!(st && vw.tr && now >= vw.tr.tUp && now < vw.tr.tArr - TAG_OFF_MS);   // only while up on the track
     if (a.status === "blocked" && !walking)   // its bounce would override the lane: walking it stays up
       el2 = el2.loop("top", { from: -12, to: 0, period: 520, easing: "ease-out" });
     if (a.status === "idle")
@@ -624,12 +624,12 @@ export default class Daemons extends View {
     } else if (isCaller) {
       // the question only once it has arrived beside its partner; on the way just a small tag
       bubble = visit.reply ? div().h(16)
-        : arrived ? this.bubbleSay(t, visit.m.text, t.accent, this.edgeOfX(x), L.levelOf(a.address, visit.m.to))
+        : arrived ? this.bubbleSay(t, visit.m.text, t.accent, this.edgeOfX(x), Math.round(x / Math.max(1, L.slot)) % 2)
         : !tagOn ? div().h(16) : div().px(6).rounded(4).border_1().border_color(t.accent).text_color(t.accent).text_size(11).font_family("Hack")
             .whitespace_nowrap().truncate().max_w(L.spriteW).child(a.space_name);
     } else if (this.answering(a.address, now)) {
       const r = this.answering(a.address, now);
-      bubble = r.reply ? (now - start(r.reply) < ANSWER_MS ? this.bubbleSay(t, r.reply.text, t.done, this.edgeOfX(x), L.levelOf(r.m.from, a.address)) : div().h(16))
+      bubble = r.reply ? (now - start(r.reply) < ANSWER_MS ? this.bubbleSay(t, r.reply.text, t.done, this.edgeOfX(x), Math.round(x / Math.max(1, L.slot)) % 2) : div().h(16))
         : div().h(16).text_size(11).text_color(c).opacity(0.8).frames(look.note, look.noteMs);
     } else {
       bubble = div().h(16).text_size(11).text_color(c).opacity(0.8).frames(look.note, look.noteMs);
@@ -911,7 +911,8 @@ export default class Daemons extends View {
       slotOf: posOf,
       spotOf: (addr) => (spots.has(addr) ? items.indexOf(spots.get(addr)) : -1),
       meetOf: (addr) => meet.get(addr),
-      levelOf: (from, to) => level.get(`${from}>${to}`) ?? 0,
+      // not planned as a visit (e.g. reports in a meeting): neighbours alternate by their place on the field
+      levelOf: (from, to, x) => level.get(`${from}>${to}`) ?? (x == null ? 0 : Math.round(x / Math.max(1, slot)) % 2),
       xOf: (p) => 20 + p * slot + (slot - spriteW) / 2, zoom,
       talking: items.some((x) => x.kind === "spot" || x.kind === "ghost"),
       grouped,
@@ -946,6 +947,7 @@ export default class Daemons extends View {
     plan(this.stage, desired, {
       now, slot, switches: this.switches(),
       destOf: (id) => id.startsWith("a:") ? groupXNow(id.slice(2)) : null,
+      destIdOf: (id) => id.startsWith("a:") ? gid(id.slice(2)) : null,   // the group it goes into (to meet it where it is)
     }, cfg);
 
     // ---- draw the committed stage ----
@@ -958,7 +960,7 @@ export default class Daemons extends View {
           .children([...this.stage.els.values()].map((e) => {
             const vw = view(this.stage, e, now);
             if (vw.hidden) return null;
-            if (e.leaving && vw.tr && now >= vw.tr.tArr) return null;   // landed in its group: merged, gone
+            if (e.leaving && vw.tr && now >= vw.tr.tDown) return null;  // came down into its group: merged, gone
             if (e.id.startsWith("a:")) {
               const a = list.find((x) => x.address === e.id.slice(2));
               return a ? this.daemon(t, a, now, e, vw) : null;
